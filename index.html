@@ -305,6 +305,16 @@ textarea.inp{min-height:84px;resize:vertical}
 .gallery{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .gallery a{display:block;border-radius:12px;overflow:hidden;background:var(--surface-2);aspect-ratio:1;max-width:100%}
 .gallery img{width:100%;height:100%;object-fit:cover;display:block}
+.gallery .vid{grid-column:1 / -1;border-radius:12px;overflow:hidden;background:#000;max-width:100%}
+.gallery video{width:100%;max-height:70vh;display:block;background:#000}
+.media-row{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.media-row::-webkit-scrollbar{display:none}
+.media-card{flex:none;width:118px;border:none;padding:0;background:none;text-align:left;display:grid;gap:5px}
+.media-thumb{position:relative;width:118px;height:168px;border-radius:12px;overflow:hidden;background:var(--surface-2)}
+.media-thumb img,.media-thumb video{width:100%;height:100%;object-fit:cover;display:block}
+.media-play{position:absolute;inset:auto auto 8px 8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:grid;place-items:center}
+.media-play svg{width:14px;height:14px;fill:#fff;stroke:none}
+.media-card span{font-size:11.5px;color:var(--ink-2);line-height:1.3}
 .gallery a:only-child{grid-column:1 / -1;aspect-ratio:4/3}
 .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .confirm{background:var(--neg-soft);border-radius:12px;padding:12px;display:grid;gap:10px}
@@ -803,7 +813,12 @@ function tlItem(p) {
 function viewLahan() {
   const C = S.C, F = S.lahanF;
   const list = C.prod.filter(p => !F.blok || p.blok === F.blok).slice().reverse();
+  const media = [];
+  C.prod.slice().reverse().forEach(p => (p.foto || []).forEach(u => { if (media.length < 12) media.push({ u, p }); }));
+  const mediaHtml = media.length ? `<section class="sec"><div class="sec-h"><h2>Dokumentasi lahan terbaru</h2><span class="small muted">${media.length} file</span></div>
+    <div class="media-row">${media.map(m => `<button class="media-card" data-act="prodDetail" data-row="${m.p.row}"><span class="media-thumb">${isVideo(m.u) ? (posterOf(m.u) ? `<img src="${esc(posterOf(m.u))}" alt="" loading="lazy">` : `<video src="${esc(m.u)}" muted preload="metadata"></video>`) + `<span class="media-play">${PLAY}</span>` : `<img src="${esc(photoSrc(m.u))}" alt="" loading="lazy">`}</span><span>${esc(m.p.blok)} · ${dLong(m.p.tgl)}</span></button>`).join('')}</div></section>` : '';
   return `<section class="intro"><p class="eyebrow">Kegiatan lapangan & kendala</p><h1>Lahan</h1></section>
+  ${mediaHtml}
   <div class="blok-list">${C.blok.map(b => `<div class="blok"><span class="blok-badge">${esc(b.b.replace('Blok ', ''))}</span><div class="blok-main">
     <div class="blok-top"><b>${esc(b.b)}</b><span class="muted num">${kg(b.panen)} / ${kgS(b.target)}</span></div>
     <div class="track gold"><i style="width:${b.target ? Math.min(100, b.panen / b.target * 100) : 0}%"></i></div>
@@ -876,7 +891,12 @@ function openSheet(html) { const s = $('#sheet'); $('#sheetBody').innerHTML = ht
 function closeSheet() { const s = $('#sheet'); if (s) s.hidden = true; document.body.style.overflow = ''; S.form = null; }
 const sheetHead = t => `<div class="sheet-h"><h2>${t}</h2><button class="icon-btn" data-act="closeSheet" aria-label="Tutup">${ic('x')}</button></div>`;
 const photoSrc = u => { if (/^data:/.test(u)) return u; const m = String(u).match(/\/d\/([\w-]{20,})/) || String(u).match(/[?&]id=([\w-]{20,})/); return m ? 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1000' : u; };
-const gallery = fotos => fotos && fotos.length ? `<div class="gallery">${fotos.map(u => `<a href="${esc(/^data:/.test(u) ? '#' : u)}" target="_blank" rel="noopener"><img src="${esc(photoSrc(u))}" alt="Foto bukti" loading="lazy"></a>`).join('')}</div>` : '';
+const isVideo = u => /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(String(u));
+const posterOf = u => /^https:\/\/qurbandong-odot\.netlify\.app\/media\/.+\.mp4$/.test(u) ? u.replace(/\.mp4$/, '.jpg') : '';
+const PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const gallery = fotos => fotos && fotos.length ? `<div class="gallery">${fotos.map(u => isVideo(u)
+  ? `<div class="vid"><video src="${esc(u)}" controls playsinline preload="none" ${posterOf(u) ? `poster="${esc(posterOf(u))}"` : ''}></video></div>`
+  : `<a href="${esc(/^data:/.test(u) ? '#' : u)}" target="_blank" rel="noopener"><img src="${esc(photoSrc(u))}" alt="Foto bukti" loading="lazy"></a>`).join('')}</div>` : '';
 const kvList = pairs => `<div class="panel"><div class="kv">${pairs.filter(p => p[1] !== '' && p[1] != null).map(p => `<div><span>${p[0]}</span><b>${p[1]}</b></div>`).join('')}</div></div>`;
 const adminBtns = (kind, row) => isAdmin() ? `<div class="btn-row"><button class="btn ghost" data-act="form" data-v="${kind}" data-row="${row}">${ic('edit')} Ubah</button><button class="btn danger" data-act="askDelete" data-v="${kind}" data-row="${row}">${ic('trash')} Hapus</button></div><div id="delBox"></div>` : '';
 const proofBlock = (fotos, ref) => fotos.length ? `<div class="sec"><span class="flabel">Bukti foto (${fotos.length})</span>${gallery(fotos)}</div>`
@@ -900,7 +920,7 @@ function prodDetail(row) {
   const p = S.C.prod.find(x => x.row === row); if (!p) return;
   openSheet(`${sheetHead(esc(p.keg || 'Kegiatan') + ' · ' + esc(p.blok))}<p style="margin:0;font-size:16px;font-weight:600">${esc(p.kejadian)}</p>
     ${kvList([['Tanggal', dLong(p.tgl)], ['Blok', esc(p.blok)], ['Kegiatan', esc(p.keg)], ['Hasil panen', p.panen ? kg(p.panen) : ''], ['Tingkat kendala', esc(p.keparahan || '-')], ['Tindak lanjut', esc(p.tindak) || '—'], ['Status', `<span class="tag ${p.status === 'Selesai' ? 'ok' : 'warn'}">${esc(p.status || '—')}</span>`], ['Baris di sheet', 'Input Produksi · ' + p.row]])}
-    ${(p.foto || []).length ? `<div class="sec"><span class="flabel">Foto kegiatan (${p.foto.length})</span>${gallery(p.foto)}</div>` : `<p class="note">Belum ada foto kegiatan.${isAdmin() ? ' Tekan Ubah untuk menambahkan.' : ''}</p>`}
+    ${(p.foto || []).length ? `<div class="sec"><span class="flabel">Foto & video kegiatan (${p.foto.length})</span>${gallery(p.foto)}</div>` : `<p class="note">Belum ada foto kegiatan.${isAdmin() ? ' Tekan Ubah untuk menambahkan.' : ''}</p>`}
     ${adminBtns('prod', row)}`);
 }
 
@@ -913,7 +933,7 @@ function photoField(label) {
 }
 function renderPhotos() {
   const el = $('#photos'); if (!el || !S.form) return;
-  el.innerHTML = S.form.photos.map((p, i) => `<div class="pthumb"><img src="${esc(p.kind === 'new' ? p.data : photoSrc(p.url))}" alt=""><button type="button" data-act="rmPhoto" data-i="${i}" aria-label="Hapus foto">${ic('x')}</button></div>`).join('')
+  el.innerHTML = S.form.photos.map((p, i) => `<div class="pthumb">${p.kind !== 'new' && isVideo(p.url) ? (posterOf(p.url) ? `<img src="${esc(posterOf(p.url))}" alt="">` : `<video src="${esc(p.url)}" muted preload="metadata"></video>`) : `<img src="${esc(p.kind === 'new' ? p.data : photoSrc(p.url))}" alt="">`}<button type="button" data-act="rmPhoto" data-i="${i}" aria-label="Hapus foto">${ic('x')}</button></div>`).join('')
     + `<label class="ph-add">${ic('cam')}<span>Tambah foto</span><input type="file" accept="${IMG_ACCEPT}" multiple data-on="pickPhoto" aria-label="Pilih atau ambil foto"></label>`;
 }
 function openForm(kind, row, extra) {
