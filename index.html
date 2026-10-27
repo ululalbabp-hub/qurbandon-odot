@@ -372,6 +372,7 @@ textarea.inp{min-height:84px;resize:vertical}
 .choice span.d{font-size:12.5px;color:var(--ink-2)}
 .choice .tx-ic{width:46px;height:46px;border-radius:14px}
 .detail-amt{font-family:var(--f-display);font-size:42px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.rep-frame{width:100%;height:72vh;border:1px solid var(--line);border-radius:16px;background:#FFF6EC}
 .gallery{display:grid;grid-template-columns:1fr;gap:8px}
 .gallery .pic{border-radius:14px;overflow:hidden;background:var(--surface-2);min-height:120px}
 .gallery .pic img{width:100%;height:auto;max-height:75vh;object-fit:contain;display:block}
@@ -597,6 +598,7 @@ function mockDo(action, p) {
     case 'deleteRow': { const list = M[p.sheet]; const i = list.findIndex(x => x.row === p.row); if (i >= 0) list.splice(i, 1); return { done: true }; }
     case 'listUsers': return M.users.map(u => ({ username: u.username, nama: u.nama, role: u.role, aktif: true, login: '' }));
     case 'saveUser': throw new Error('Mode demo: pengguna tidak dapat ditambah.');
+    case 'sendReport': throw new Error('Mode demo: email tidak dikirim. Di aplikasi asli laporan terkirim ke email investor + PDF.');
   }
   throw new Error('Aksi tidak dikenal');
 }
@@ -994,6 +996,157 @@ function riskCard(m) {
     <div class="risk-f"><span>PJ: <b>${esc(m.pj || '—')}</b></span><span class="${overdue ? 'negc' : ''}">Target: <b>${dLong(m.target)}</b>${overdue ? ' · lewat' : ''}</span><span class="sp"></span>${isAdmin() ? `<button class="btn ghost sm" data-act="form" data-v="mit" data-row="${m.row}">${ic('edit')} Ubah</button>` : ''}</div></article>`;
 }
 
+// ===== Laporan bulanan (dipakai bersama oleh Code.gs dan aplikasi) =====
+function buildMonthlyReport(D, mk, opt) {
+  opt = opt || {};
+  const cfg = D.cfg;
+  const BL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const G = '#0D4715', G2 = '#41644A', OR = '#E9762B', CH = '#FFE5C8', JET = '#2A2D2B', MUTE = '#6b716d', LINE = '#F0DCC5', BG = '#FFF6EC';
+  const RED = '#B8321F', OK = '#1D7A2B';
+  const F = "font-family:'Paralucent Text',Arial,Helvetica,sans-serif;";
+  const FD = "font-family:'Paralucent Cond','Arial Narrow',Arial,Helvetica,sans-serif;";
+  const e = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const th = n => String(Math.round(Math.abs(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const rp = n => ((n || 0) < 0 ? '−' : '') + 'Rp' + th(n);
+  const jt = n => { const a = Math.abs(n || 0), s = (n || 0) < 0 ? '−' : ''; return a >= 1e6 ? s + 'Rp' + (Math.round(a / 1e5) / 10).toString().replace('.', ',') + ' jt' : rp(n); };
+  const kg = n => th(n) + ' kg';
+  const pct = x => (Math.round((x || 0) * 1000) / 10).toString().replace('.', ',') + '%';
+  const sum = (a, f) => a.reduce((s, x) => s + (f ? f(x) : x), 0);
+  const ml = k => BL[+k.slice(5) - 1] + ' ' + k.slice(0, 4);
+  const tg = iso => { if (!iso) return '–'; const p = iso.split('-'); return +p[2] + ' ' + BL[+p[1] - 1].slice(0, 3); };
+  const byT = (a, b) => (a.tgl || '').localeCompare(b.tgl || '');
+  const inM = x => (x.tgl || '').slice(0, 7) === mk;
+  const before = x => !!x.tgl && x.tgl.slice(0, 7) < mk;
+  const upto = x => !!x.tgl && x.tgl.slice(0, 7) <= mk;
+
+  const kas = D.kas || [], jual = D.jual || [], prod = D.prod || [], mit = D.mit || [];
+  const saldoAwal = sum(kas.filter(before), k => (k.masuk || 0) - (k.keluar || 0));
+  const kM = kas.filter(inM).sort(byT);
+  const masuk = sum(kM, k => k.masuk || 0), keluar = sum(kM, k => k.keluar || 0), saldoAkhir = saldoAwal + masuk - keluar;
+  const modalKum = sum(kas.filter(upto).filter(k => k.kat === 'Modal Investor Masuk'), k => k.masuk || 0);
+  const keluarKum = sum(kas.filter(upto), k => k.keluar || 0);
+  const kat = {}; kM.forEach(k => { if (k.keluar) kat[k.kat] = (kat[k.kat] || 0) + k.keluar; });
+  const katL = Object.keys(kat).map(k => [k, kat[k]]).sort((a, b) => b[1] - a[1]);
+  const noBukti = kM.filter(k => !k.ref && !(k.foto || []).length);
+
+  const pM = prod.filter(inM).sort(byT);
+  const isPanen = p => p.keg === 'Panen' || (p.panen || 0) > 0;
+  const panenM = sum(pM.filter(isPanen), p => p.panen || 0);
+  const panenKum = sum(prod.filter(upto).filter(isPanen), p => p.panen || 0);
+  const tgtM = (cfg.TARGET_BULANAN || {})[mk] || 0;
+  const tgtKum = sum(Object.keys(cfg.TARGET_BULANAN || {}).filter(m => m <= mk), m => cfg.TARGET_BULANAN[m]);
+  const jM = jual.filter(inM);
+  const jualKg = sum(jM, j => j.kg || 0), jualRp = sum(jM, j => j.total || 0);
+  const piutang = sum(jual.filter(upto).filter(j => j.status === 'Belum Lunas'), j => j.total || 0);
+  const kendala = pM.filter(p => ['Rendah', 'Sedang', 'Tinggi'].indexOf(p.keparahan) >= 0);
+  const riskAktif = mit.filter(m => m.status !== 'Selesai').sort((a, b) => b.p * b.d - a.p * a.d);
+  const riskDone = mit.filter(m => m.status === 'Selesai');
+  const media = [];
+  pM.concat(kM).forEach(x => (x.foto || []).forEach(u => media.push({ u: u, x: x })));
+  const blokSum = (cfg.BLOK || []).map(b => {
+    const all = prod.filter(p => p.blok === b && upto(p)).sort(byT);
+    return { b: b, n: pM.filter(p => p.blok === b).length, last: all[all.length - 1], panen: sum(all.filter(isPanen), p => p.panen || 0), target: (cfg.TARGET_BLOK || {})[b] || 0 };
+  });
+
+  const high = [];
+  if (masuk || keluar) high.push('Kas masuk ' + jt(masuk) + ' dan kas keluar ' + jt(keluar) + ' bulan ini; saldo akhir <b>' + rp(saldoAkhir) + '</b>.');
+  if (katL.length) high.push('Pengeluaran terbesar untuk <b>' + e(katL[0][0]) + '</b> (' + jt(katL[0][1]) + ', ' + pct(katL[0][1] / keluar) + ' dari pengeluaran bulan ini).');
+  high.push('Modal investor diterima kumulatif ' + jt(modalKum) + ' dari plafon ' + jt(cfg.PLAFON) + ' (' + pct(modalKum / cfg.PLAFON) + ').');
+  if (panenM) high.push('Panen bulan ini <b>' + kg(panenM) + '</b>' + (tgtM ? ' dari target ' + kg(tgtM) + ' (' + pct(panenM / tgtM) + ')' : '') + '.');
+  else if (tgtM) high.push('Belum ada panen tercatat; target proposal bulan ini ' + kg(tgtM) + '.');
+  if (pM.length) high.push(pM.length + ' kegiatan lapangan tercatat di ' + blokSum.filter(x => x.n).length + ' blok' + (kendala.length ? ', ' + kendala.length + ' di antaranya dengan kendala' : '') + '.');
+  if (noBukti.length) high.push(noBukti.length + ' transaksi bulan ini belum dilengkapi bukti foto/kuitansi.');
+  if (saldoAkhir < 0) high.push('<span style="color:' + RED + '">Saldo kas akhir bulan negatif; selisih ditalangi pengelola.</span>');
+
+  const sec = (t, inner) => '<tr><td style="padding:22px 24px 0">' +
+    '<div style="' + FD + 'font-size:20px;font-weight:800;color:' + G + ';margin:0 0 10px;letter-spacing:.01em">' + t + '</div>' + inner + '</td></tr>';
+  const card = (k, v, s, col) => '<td width="50%" valign="top" style="padding:5px"><div style="background:#fff;border:1px solid ' + LINE + ';border-radius:12px;padding:12px 14px">' +
+    '<div style="' + F + 'font-size:12px;color:' + MUTE + '">' + k + '</div><div style="' + FD + 'font-size:24px;font-weight:800;color:' + (col || JET) + ';line-height:1.2">' + v + '</div>' +
+    '<div style="' + F + 'font-size:11.5px;color:' + MUTE + '">' + (s || '&nbsp;') + '</div></div></td>';
+  const tbl = (head, rows, empty) => rows.length ? '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;' + F + 'font-size:12.5px;color:' + JET + '"><tr>' +
+    head.map(h => '<td style="padding:7px 6px;background:' + CH + ';font-weight:700;color:#964510;' + (h.r ? 'text-align:right;' : '') + '">' + h.t + '</td>').join('') + '</tr>' +
+    rows.map(r => '<tr>' + r.map((c, i) => '<td valign="top" style="padding:7px 6px;border-bottom:1px solid ' + LINE + ';' + (head[i].r ? 'text-align:right;white-space:nowrap;' : '') + '">' + c + '</td>').join('') + '</tr>').join('') + '</table>'
+    : '<div style="' + F + 'font-size:13px;color:' + MUTE + ';background:#fff;border:1px dashed ' + LINE + ';border-radius:10px;padding:12px">' + empty + '</div>';
+  const bar = (label, val, max, right, col) => '<div style="margin:0 0 9px;' + F + 'font-size:12.5px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="color:' + JET + '">' + label + '</td><td style="text-align:right;font-weight:700;white-space:nowrap">' + right + '</td></tr></table>' +
+    '<div style="height:8px;background:' + CH + ';border-radius:99px;margin-top:4px"><div style="height:8px;width:' + Math.max(2, Math.min(100, max ? val / max * 100 : 0)) + '%;background:' + (col || OR) + ';border-radius:99px"></div></div></div>';
+  const lvl = s => s >= 15 ? ['Tinggi', RED] : s >= 8 ? ['Sedang', '#A35400'] : ['Rendah', OK];
+  const link = (u, t) => /^https?:/.test(u) ? '<a href="' + e(u) + '" style="color:' + G2 + ';font-weight:700">' + t + '</a>' : t;
+
+  let h = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Laporan Rumput Odot ' + ml(mk) + '</title>' +
+    (opt.fontCss || '') + '</head><body style="margin:0;padding:0;background:' + BG + '">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:' + BG + '"><tr><td align="center" style="padding:' + (opt.pdf ? '0' : '16px 8px') + '">' +
+    '<table width="640" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;background:' + BG + ';' + F + '">';
+  h += '<tr><td style="background:' + G + ';padding:22px 24px;border-radius:' + (opt.pdf ? '0' : '18px 18px 0 0') + '"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    (opt.logo ? '<td width="64" valign="middle"><img src="' + e(opt.logo) + '" width="56" height="56" alt="Qurbandong" style="display:block;border-radius:14px;background:#fff"></td>' : '') +
+    '<td valign="middle" style="padding-left:' + (opt.logo ? '12px' : '0') + '"><div style="' + FD + 'font-size:13px;font-weight:700;letter-spacing:.1em;color:' + OR + '">LAPORAN BULANAN</div>' +
+    '<div style="' + FD + 'font-size:26px;font-weight:800;color:#FFF5E9;line-height:1.1">Usaha Tani Rumput Odot</div>' +
+    '<div style="' + F + 'font-size:13px;color:#ABC8B2;margin-top:3px">' + ml(mk) + ' · Qurbandong Farm × ' + e(cfg.INVESTOR) + '</div></td></tr></table></td></tr>';
+  h += '<tr><td style="padding:16px 19px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    card('Kas masuk', jt(masuk), kM.filter(k => k.masuk).length + ' transaksi', OK) + card('Kas keluar', jt(keluar), kM.filter(k => k.keluar).length + ' transaksi', '#964510') + '</tr><tr>' +
+    card('Saldo akhir bulan', jt(saldoAkhir), 'Saldo awal ' + jt(saldoAwal), saldoAkhir < 0 ? RED : G) +
+    card('Panen bulan ini', kg(panenM), tgtM ? 'Target ' + kg(tgtM) : 'Tidak ada target bulan ini', G2) + '</tr></table></td></tr>';
+  h += sec('Sorotan bulan ini', '<ul style="margin:0;padding-left:18px;' + F + 'font-size:13.5px;line-height:1.6;color:' + JET + '">' + high.map(x => '<li>' + x + '</li>').join('') + '</ul>' +
+    (opt.note ? '<div style="margin-top:12px;background:#fff;border-left:4px solid ' + OR + ';border-radius:8px;padding:10px 12px;' + F + 'font-size:13px;color:' + JET + '"><b>Catatan pengelola:</b><br>' + e(opt.note).replace(/\n/g, '<br>') + '</div>' : ''));
+  h += sec('1. Keuangan',
+    tbl([{ t: 'Posisi kas' }, { t: 'Nominal', r: 1 }], [['Saldo awal ' + ml(mk), rp(saldoAwal)], ['Kas masuk', rp(masuk)], ['Kas keluar', '−' + rp(keluar).replace('−', '')], ['<b>Saldo akhir</b>', '<b>' + rp(saldoAkhir) + '</b>'],
+      ['Modal investor kumulatif', rp(modalKum) + ' / ' + jt(cfg.PLAFON)], ['Pengeluaran kumulatif', rp(keluarKum)]], '') +
+    (katL.length ? '<div style="height:14px"></div><div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Pengeluaran per kategori</div>' + katL.map(x => bar(e(x[0]), x[1], katL[0][1], rp(x[1]) + ' · ' + pct(x[1] / keluar))).join('') : '') +
+    '<div style="height:10px"></div><div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Rincian transaksi (' + kM.length + ')</div>' +
+    tbl([{ t: 'Tgl' }, { t: 'Keterangan' }, { t: 'Nominal', r: 1 }, { t: 'Bukti' }],
+      kM.map(k => [tg(k.tgl), e(k.ket) + '<div style="color:' + MUTE + ';font-size:11.5px">' + e(k.kat) + '</div>', k.masuk ? '<span style="color:' + OK + '">+' + rp(k.masuk) + '</span>' : '−' + rp(k.keluar),
+        (k.foto || []).length ? link(k.foto[0], 'Foto') : (k.ref ? e(k.ref) : '<span style="color:' + RED + '">Belum ada</span>')]), 'Tidak ada transaksi kas pada bulan ini.'));
+  h += sec('2. Produksi & lahan',
+    tbl([{ t: 'Blok' }, { t: 'Kegiatan' }, { t: 'Terakhir' }, { t: 'Panen / target', r: 1 }],
+      blokSum.map(x => ['<b>' + e(x.b) + '</b>', x.n ? x.n + '×' : '–', x.last ? e(x.last.keg) + ' · ' + tg(x.last.tgl) : 'Belum dikerjakan', kg(x.panen) + ' / ' + th(x.target / 1000) + ' ton']), '') +
+    '<div style="height:14px"></div><div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Kegiatan bulan ini (' + pM.length + ')</div>' +
+    tbl([{ t: 'Tgl' }, { t: 'Blok' }, { t: 'Kegiatan & uraian' }, { t: 'Status' }],
+      pM.map(p => [tg(p.tgl), e(p.blok), '<b>' + e(p.keg) + '</b> · ' + e(p.kejadian) + (p.panen ? ' · <b>' + kg(p.panen) + '</b>' : '') + ((p.foto || []).length ? ' · ' + link(p.foto[0], (p.foto.length > 1 ? p.foto.length + ' media' : 'Media')) : ''),
+        '<span style="color:' + (p.status === 'Selesai' ? OK : '#A35400') + ';font-weight:700">' + e(p.status || '–') + '</span>']), 'Tidak ada kegiatan lapangan tercatat pada bulan ini.'));
+  h += sec('3. Panen & penjualan',
+    bar('Panen bulan ini vs target', panenM, tgtM || 1, kg(panenM) + (tgtM ? ' / ' + kg(tgtM) : ''), G2) +
+    bar('Panen kumulatif vs target kumulatif', panenKum, tgtKum || 1, kg(panenKum) + ' / ' + kg(tgtKum), G2) +
+    bar('Panen kumulatif vs target tahun ke-1', panenKum, cfg.TARGET_TH1_KG, pct(panenKum / cfg.TARGET_TH1_KG) + ' dari ' + kg(cfg.TARGET_TH1_KG), OR) +
+    tbl([{ t: 'Penjualan bulan ini' }, { t: 'Nilai', r: 1 }], [['Volume terjual', kg(jualKg)], ['Pendapatan', rp(jualRp)], ['Jumlah transaksi', String(jM.length)], ['Piutang (belum lunas, kumulatif)', rp(piutang)]], ''));
+  h += sec('4. Kendala & mitigasi',
+    '<div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Kendala lapangan bulan ini (' + kendala.length + ')</div>' +
+    tbl([{ t: 'Tgl' }, { t: 'Kendala' }, { t: 'Tindak lanjut' }],
+      kendala.map(p => [tg(p.tgl), '<b>' + e(p.blok) + ' · ' + e(p.keparahan) + '</b><br>' + e(p.kejadian), e(p.tindak || '–') + '<div style="font-size:11.5px;color:' + (p.status === 'Selesai' ? OK : '#A35400') + ';font-weight:700">' + e(p.status || '') + '</div>']), 'Tidak ada kendala lapangan tercatat pada bulan ini.') +
+    '<div style="height:14px"></div><div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Register risiko aktif (' + riskAktif.length + ')</div>' +
+    tbl([{ t: 'ID' }, { t: 'Risiko & langkah' }, { t: 'Status' }],
+      riskAktif.map(m => { const L = lvl(m.p * m.d); return ['<b>' + e(m.id) + '</b><div style="font-size:11px;color:' + L[1] + ';font-weight:700">' + L[0] + ' · ' + (m.p * m.d) + '</div>',
+        e(m.risiko) + '<div style="color:' + MUTE + ';font-size:11.5px">' + e(String(m.langkah || '').split(/\n+/)[0]) + (m.catatan ? '<br><i>' + e(m.catatan) + '</i>' : '') + '</div>',
+        e(m.status) + '<div style="font-size:11px;color:' + MUTE + '">PJ ' + e(m.pj || '–') + (m.target ? ' · ' + tg(m.target) : '') + '</div>']; }), 'Tidak ada risiko aktif.') +
+    (riskDone.length ? '<div style="height:10px"></div><div style="' + F + 'font-size:12.5px;color:' + OK + '"><b>Sudah diselesaikan:</b> ' + riskDone.map(m => e(m.id) + ' ' + e(m.risiko)).join('; ') + '</div>' : ''));
+  h += sec('5. Dokumentasi',
+    media.length ? '<div style="' + F + 'font-size:13px;line-height:1.7">' + media.length + ' foto/video tercatat bulan ini:<br>' +
+      media.slice(0, 15).map((m, i) => link(m.u, (i + 1) + '. ' + e(m.x.blok || m.x.kat || '') + ' · ' + tg(m.x.tgl))).join('<br>') + (media.length > 15 ? '<br>…dan ' + (media.length - 15) + ' lainnya di aplikasi.' : '') + '</div>'
+      : '<div style="' + F + 'font-size:13px;color:' + MUTE + '">Belum ada foto/video yang dilampirkan bulan ini.</div>');
+  h += '<tr><td style="padding:24px"><div style="background:' + G + ';border-radius:14px;padding:16px 18px;' + F + 'font-size:13px;color:#FFE5C8;line-height:1.6">' +
+    (opt.appUrl ? 'Detail lengkap, foto kuitansi, dan video lahan bisa dilihat di aplikasi <a href="' + e(opt.appUrl) + '" style="color:' + OR + ';font-weight:700">QDF Odot</a>.<br>' : '') +
+    'Laporan ini disusun otomatis dari spreadsheet pelaporan' + (opt.generated ? ' pada ' + e(opt.generated) + ' WIB' : '') + '. Pertanyaan atau koreksi: balas email ini atau hubungi pengelola Qurbandong Farm.</div></td></tr>';
+  h += '</table></td></tr></table></body></html>';
+  return { html: h, subject: 'Laporan Bulanan Rumput Odot · ' + ml(mk) + ' · Qurbandong Farm', label: ml(mk) };
+}
+
+
+// ---------- Laporan bulanan ----------
+function reportMonths() { const C = S.C; const end = C.thisMonth < C.cfg.PERIODE_SELESAI ? C.thisMonth : C.cfg.PERIODE_SELESAI; return monthsBetween(C.cfg.PERIODE_MULAI, end).reverse(); }
+function defaultReportMonth() { const ms = reportMonths(); return ms.length > 1 ? ms[1] : ms[0]; }
+function reportPanel() {
+  const ms = reportMonths(), def = defaultReportMonth();
+  return `<div class="panel"><div class="ph"><h3>Laporan bulanan</h3><span class="small muted">${isAdmin() ? 'otomatis tiap tgl 1' : 'dikirim ke email Anda tiap tgl 1'}</span></div>
+    <p class="small muted" style="margin:0">Ringkasan keuangan, kegiatan per blok, panen, kendala, mitigasi, dan dokumentasi dalam satu laporan.</p>
+    <div class="row2"><select class="inp" id="repMonth" aria-label="Bulan laporan">${ms.map(m => `<option value="${m}" ${m === def ? 'selected' : ''}>${mLong(m)}</option>`).join('')}</select><button class="btn primary sm" data-act="openReport">Lihat</button></div></div>`;
+}
+function openReport() {
+  const mk = ($('#repMonth') || {}).value || defaultReportMonth();
+  const r = buildMonthlyReport({ kas: S.D.kas, jual: S.D.jual, prod: S.D.prod, mit: S.D.mit, cfg: S.C.cfg }, mk, { logo: LOGO_SRC, appUrl: IS_GAS || DEMO ? '' : location.origin, generated: '' });
+  openSheet(`${sheetHead('Laporan ' + esc(r.label))}
+    <iframe class="rep-frame" title="Laporan ${esc(r.label)}" srcdoc="${esc(r.html)}"></iframe>
+    ${isAdmin() ? `<div class="panel" style="gap:10px"><div class="field"><label for="repNote">Catatan pengelola <span class="muted">(opsional, ikut terkirim)</span></label><textarea class="inp" id="repNote" placeholder="mis. Panen perdana Blok A dijadwalkan 5 November"></textarea></div>
+      <div class="btn-row"><button class="btn ghost sm" data-act="sendReport" data-test="1" data-m="${mk}">Kirim uji ke saya</button><button class="btn accent sm" data-act="askSendReport" data-m="${mk}">Kirim ke investor</button></div><div id="repBox"></div></div>` : ''}`);
+}
+
 // ---------- Pembaruan & notifikasi ----------
 const seenKey = () => 'qdf_seen_' + (S.user ? S.user.username : '');
 function updateBell() {
@@ -1056,6 +1209,7 @@ function viewAkun() {
   <div class="panel"><h3>Pasang di layar utama HP</h3>
     <div class="kv"><div><span>Android (Chrome)</span><b>Menu ⋮ → Tambahkan ke layar utama</b></div><div><span>iPhone (Safari)</span><b>Bagikan ⬆ → Tambah ke Layar Utama</b></div></div>
     <p class="note">Buka lewat tautan pintasan Qurbandong yang dibagikan pengelola agar ikon logo dan nama aplikasi tampil di layar utama.</p></div>
+  ${reportPanel()}
   <div class="panel notif-box" id="notifBox">${notifPanel()}</div>
   ${isAdmin() && S.D.sheetUrl ? `<a class="btn ghost block" href="${esc(S.D.sheetUrl)}" target="_blank" rel="noopener">${ic('sheet')} Buka Google Sheet</a>` : ''}
   <button class="btn ghost block" data-act="refresh">${ic('refresh')} Muat ulang data</button>
@@ -1071,7 +1225,7 @@ async function loadUsers() {
   try {
     const us = await call('listUsers'); S.users = us;
     const el = $('#userList'); if (!el) return;
-    el.innerHTML = `<div class="group">${us.map(u => `<button class="tx" data-act="userForm" data-u="${esc(u.username)}"><span class="tx-ic ${u.role === 'pengelola' ? 'harv' : 'prod'}">${ic('user')}</span><span class="tx-main"><span class="tx-t">${esc(u.nama)}</span><span class="tx-m">@${esc(u.username)} · ${u.login ? 'login ' + esc(u.login) : 'belum pernah login'}</span></span><span class="tx-amt"><span class="tag ${u.aktif ? (u.role === 'pengelola' ? 'warn' : 'info') : 'mute'}">${u.aktif ? esc(u.role) : 'nonaktif'}</span></span></button>`).join('')}</div>`;
+    el.innerHTML = `<div class="group">${us.map(u => `<button class="tx" data-act="userForm" data-u="${esc(u.username)}"><span class="tx-ic ${u.role === 'pengelola' ? 'harv' : 'prod'}">${ic('user')}</span><span class="tx-main"><span class="tx-t">${esc(u.nama)}</span><span class="tx-m">@${esc(u.username)} · ${u.email ? esc(u.email) : '<span style="color:var(--neg)">email belum diisi</span>'}</span></span><span class="tx-amt"><span class="tag ${u.aktif ? (u.role === 'pengelola' ? 'warn' : 'info') : 'mute'}">${u.aktif ? esc(u.role) : 'nonaktif'}</span></span></button>`).join('')}</div>`;
   } catch (e) { const el = $('#userList'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 
@@ -1224,6 +1378,7 @@ function userForm(username) {
   <form class="form" data-on="saveUser" novalidate>
     <div class="field"><label for="u-un">Username</label><input class="inp" id="u-un" name="username" value="${esc(u ? u.username : '')}" ${u ? 'readonly' : ''} autocapitalize="none" placeholder="huruf kecil, tanpa spasi"></div>
     <div class="field"><label for="u-nm">Nama</label><input class="inp" id="u-nm" name="nama" value="${esc(u ? u.nama : '')}"></div>
+    <div class="field"><label for="u-em">Email <span class="muted">(untuk laporan bulanan)</span></label><input class="inp" id="u-em" name="email" type="email" inputmode="email" autocapitalize="none" value="${esc(u ? (u.email || '') : '')}" placeholder="nama@email.com"></div>
     <div class="field"><span class="flabel">Peran</span>${opts('role', ['investor', 'pengelola'], u ? u.role : 'investor', 'split', ['Investor (lihat)', 'Pengelola (input)'])}</div>
     ${u ? `<label class="check"><input type="checkbox" name="aktif" ${u.aktif ? 'checked' : ''}><span>Akun aktif (bisa login)</span></label>` : ''}
     <div class="field"><label for="u-pw">${u ? 'Reset password <span class="muted">(kosongkan jika tidak diubah)</span>' : 'Password awal'}</label><input class="inp" id="u-pw" name="password" type="text" autocomplete="off" minlength="6"></div>
@@ -1280,7 +1435,7 @@ const FORMS = {
     need(String(f.get('risiko')).trim(), 'Isi uraian risiko.'); need(String(f.get('langkah')).trim(), 'Isi minimal satu langkah mitigasi.');
     return { row: S.form.row, guard: r ? r.risiko : undefined, tgl: r ? r.tgl : today(), risiko: String(f.get('risiko')).trim(), kat: f.get('kat'), p: +f.get('p'), d: +f.get('d'), langkah: String(f.get('langkah')).trim(), pj: String(f.get('pj') || '').trim(), target: f.get('target') || '', status: f.get('status'), catatan: String(f.get('catatan') || '').trim() };
   },
-  saveUser: f => ({ isNew: S.form.isNew, username: String(f.get('username') || '').trim().toLowerCase(), nama: String(f.get('nama') || '').trim(), role: f.get('role'), aktif: S.form.isNew ? true : !!f.get('aktif'), password: String(f.get('password') || '') })
+  saveUser: f => ({ isNew: S.form.isNew, username: String(f.get('username') || '').trim().toLowerCase(), nama: String(f.get('nama') || '').trim(), role: f.get('role'), aktif: S.form.isNew ? true : !!f.get('aktif'), email: String(f.get('email') || '').trim(), password: String(f.get('password') || '') })
 };
 
 // ---------- Event ----------
@@ -1315,6 +1470,15 @@ const ACT = {
   demoLogin: async t => { try { await doLogin(t.dataset.u, 'demo', true); } catch (e) { $('#loginErr').innerHTML = `<div class="err">${esc(e.message)}</div>`; } },
   userForm: t => userForm(t.dataset.u),
   openFeed: () => openFeed(),
+  openReport: () => openReport(),
+  askSendReport: t => { $('#repBox').innerHTML = `<div class="confirm" style="background:var(--accent-soft)"><p style="color:var(--accent-ink)">Kirim laporan ${mLong(t.dataset.m)} ke semua investor yang emailnya terdaftar, dengan lampiran PDF?</p><div class="btn-row"><button class="btn ghost sm" data-act="cancelSend">Batal</button><button class="btn accent sm" data-act="sendReport" data-m="${t.dataset.m}">Ya, kirim</button></div></div>`; },
+  cancelSend: () => { $('#repBox').innerHTML = ''; },
+  sendReport: async t => {
+    const label = t.textContent; t.disabled = true; t.textContent = 'Mengirim…';
+    try { const r = await call('sendReport', { month: t.dataset.m, test: t.dataset.test === '1', note: ($('#repNote') || {}).value || '' }); $('#repBox').innerHTML = ''; toast('Terkirim ke ' + r.to.join(', ')); }
+    catch (e) { $('#repBox').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+    t.disabled = false; t.textContent = label;
+  },
   enablePush: t => enablePush(t),
   disablePush: () => disablePush(),
   testPush: async t => { t.disabled = true; try { await call('testPush'); toast('Notifikasi uji dikirim'); } catch (e) { toast(e.message); } t.disabled = false; },
