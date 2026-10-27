@@ -163,6 +163,7 @@ main.wrap{max-width:600px;margin:0 auto;padding-top:18px;padding-bottom:calc(var
 .sig{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--sev);border-radius:12px;padding:11px 12px}
 .sig .ic{color:var(--sev);margin-top:1px}
 .sig b{display:block;font-size:14px;line-height:1.35}
+.res-k{display:block;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--pos);margin-bottom:2px}
 .sig p{margin:3px 0 0;font-size:12.5px;color:var(--ink-2)}
 .sev-crit{--sev:var(--neg)} .sev-warn{--sev:var(--warn)} .sev-info{--sev:var(--info)} .sev-ok{--sev:var(--pos)}
 
@@ -556,6 +557,21 @@ function signals(C, D) {
   out.sort((a, b) => rank[a.sev] - rank[b.sev]);
   return out;
 }
+function resolvedItems(C, D) {
+  const out = [], t = C.today;
+  D.mit.filter(m => m.status === 'Selesai').forEach(m => out.push({ kind: 'Risiko diselesaikan', tag: m.id, t: m.risiko, d: m.catatan || String(m.langkah || '').split(/\n+/).pop(), date: m.target || m.tgl }));
+  C.prod.filter(p => ['Rendah', 'Sedang', 'Tinggi'].includes(p.keparahan) && p.status === 'Selesai').forEach(p => out.push({ kind: 'Kendala lapangan teratasi', tag: p.blok + ' · ' + p.keparahan, t: p.kejadian, d: p.tindak ? 'Penanganan: ' + p.tindak : 'Ditandai selesai', date: p.tgl, row: p.row }));
+  out.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const checks = [];
+  if (C.plafonUsed <= .85) checks.push({ t: 'Plafon modal masih aman', d: pct(C.plafonUsed) + ' terpakai, sisa ' + rpS(C.cfg.PLAFON - C.modal) + '.' });
+  if (C.lastProd && daysBetween(C.lastProd, t) <= 7) checks.push({ t: 'Laporan lapangan rutin terpenuhi', d: 'Catatan kegiatan terakhir ' + dLong(C.lastProd) + ' (maks. 7 hari).' });
+  if (!C.prod.some(p => p.keparahan === 'Tinggi' && p.status === 'Proses')) checks.push({ t: 'Tidak ada kendala tingkat tinggi yang terbuka', d: 'Semua kendala berat sudah ditangani atau belum pernah terjadi.' });
+  if (C.jual.length && !C.piutang) checks.push({ t: 'Tidak ada piutang penjualan', d: 'Semua penjualan berstatus Lunas.' });
+  const stale = C.prod.filter(p => p.status === 'Proses' && p.tgl && daysBetween(p.tgl, t) > 14);
+  if (C.prod.length && !stale.length) checks.push({ t: 'Tidak ada kegiatan yang terbengkalai', d: 'Semua kegiatan berstatus Proses masih di bawah 14 hari.' });
+  return { out, checks };
+}
+const resolvedHtml = r => `<div class="sig sev-ok"${r.row ? ` data-act="prodDetail" data-row="${r.row}" role="button" tabindex="0" style="cursor:pointer"` : ''}>${ic('check')}<div><span class="res-k">${esc(r.kind)} · ${esc(r.tag)}${r.date ? ' · ' + dLong(r.date) : ''}</span><b>${esc(r.t)}</b><p>${esc(r.d || '')}</p></div></div>`;
 const sigHtml = s => `<div class="sig sev-${s.sev}">${ic(s.sev === 'crit' ? 'alert' : s.sev === 'warn' ? 'info' : s.sev === 'ok' ? 'check' : 'info')}<div><b>${esc(s.t)}</b><p>${esc(s.d)}</p></div></div>`;
 
 // ---------- Grafik SVG ----------
@@ -847,6 +863,8 @@ function viewMitigasi() {
     <p class="muted">Sinyal dibaca otomatis dari data kas, panen, dan kegiatan. Register risiko diisi pengelola.</p></section>
   <section class="sec"><div class="sec-h"><h2>Sinyal otomatis</h2><span class="small muted">${sig.length} sinyal</span></div>
     <div class="sigs">${sig.length ? sig.map(sigHtml).join('') : sigHtml({ sev: 'ok', t: 'Semua indikator aman', d: 'Tidak ada sinyal risiko dari data saat ini.' })}</div></section>
+  ${(() => { const R = resolvedItems(C, D); const n = R.out.length + R.checks.length; return `<section class="sec"><div class="sec-h"><h2>Sudah dicegah & diselesaikan</h2><span class="small muted">${n} item</span></div>
+    ${n ? `<div class="sigs">${R.checks.map(c => sigHtml({ sev: 'ok', t: c.t, d: c.d })).join('')}${R.out.map(resolvedHtml).join('')}</div>` : `<div class="empty"><b>Belum ada yang tercatat selesai</b><p>Risiko berstatus Selesai dan kendala lapangan yang sudah ditangani akan muncul di sini.</p></div>`}</section>`; })()}
   <div class="panel"><div class="ph"><h3>Peta risiko</h3><span class="small muted">risiko aktif</span></div>
     <div class="matrix-wrap"><div class="mx-y">Kemungkinan →</div><div><div class="matrix">${cells}</div><div class="mx-x"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div><div class="mx-cap">Dampak →</div></div></div></div>
   <section class="sec"><div class="sec-h"><h2>Register risiko</h2>${isAdmin() ? `<button class="btn accent sm" data-act="form" data-v="mit">${ic('plus')} Risiko</button>` : ''}</div>
