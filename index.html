@@ -302,7 +302,9 @@ textarea.inp{min-height:84px;resize:vertical}
 .choice span.d{font-size:12.5px;color:var(--ink-2)}
 .choice .tx-ic{width:44px;height:44px;border-radius:12px}
 .detail-amt{font-family:var(--f-display);font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.gallery{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gallery{display:grid;grid-template-columns:1fr;gap:8px}
+.gallery .pic{border-radius:12px;overflow:hidden;background:var(--surface-2);min-height:120px}
+.gallery .pic img{width:100%;height:auto;max-height:75vh;object-fit:contain;display:block}
 .gallery a{display:block;border-radius:12px;overflow:hidden;background:var(--surface-2);aspect-ratio:1;max-width:100%}
 .gallery img{width:100%;height:100%;object-fit:cover;display:block}
 .gallery .vid{grid-column:1 / -1;border-radius:12px;overflow:hidden;background:#000;max-width:100%}
@@ -660,6 +662,7 @@ function renderShell() {
 function renderView() {
   const v = $('#view'); if (!v) return;
   document.querySelectorAll('.bnav button[data-v]').forEach(b => b.setAttribute('aria-current', b.dataset.v === S.view ? 'page' : 'false'));
+  setTimeout(hydrateMedia, 0);
   v.innerHTML = ({ home: viewHome, mutasi: viewMutasi, lahan: viewLahan, mitigasi: viewMitigasi, akun: viewAkun })[S.view]();
   if (S.view === 'akun' && isAdmin()) loadUsers();
 }
@@ -816,7 +819,7 @@ function viewLahan() {
   const media = [];
   C.prod.slice().reverse().forEach(p => (p.foto || []).forEach(u => { if (media.length < 12) media.push({ u, p }); }));
   const mediaHtml = media.length ? `<section class="sec"><div class="sec-h"><h2>Dokumentasi lahan terbaru</h2><span class="small muted">${media.length} file</span></div>
-    <div class="media-row">${media.map(m => `<button class="media-card" data-act="prodDetail" data-row="${m.p.row}"><span class="media-thumb">${isVideo(m.u) ? (posterOf(m.u) ? `<img src="${esc(posterOf(m.u))}" alt="" loading="lazy">` : `<video src="${esc(m.u)}" muted preload="metadata"></video>`) + `<span class="media-play">${PLAY}</span>` : `<img src="${esc(photoSrc(m.u))}" alt="" loading="lazy">`}</span><span>${esc(m.p.blok)} · ${dLong(m.p.tgl)}</span></button>`).join('')}</div></section>` : '';
+    <div class="media-row">${media.map(m => `<button class="media-card" data-act="prodDetail" data-row="${m.p.row}"><span class="media-thumb">${isVideo(m.u) ? (posterOf(m.u) ? `<img src="${esc(posterOf(m.u))}" alt="" loading="lazy">` : `<video src="${esc(m.u)}" muted preload="metadata"></video>`) + `<span class="media-play">${PLAY}</span>` : imgTag(m.u)}</span><span>${esc(m.p.blok)} · ${dLong(m.p.tgl)}</span></button>`).join('')}</div></section>` : '';
   return `<section class="intro"><p class="eyebrow">Kegiatan lapangan & kendala</p><h1>Lahan</h1></section>
   ${mediaHtml}
   <div class="blok-list">${C.blok.map(b => `<div class="blok"><span class="blok-badge">${esc(b.b.replace('Blok ', ''))}</span><div class="blok-main">
@@ -887,16 +890,30 @@ async function loadUsers() {
 }
 
 // ---------- Bottom sheet ----------
-function openSheet(html) { const s = $('#sheet'); $('#sheetBody').innerHTML = html; s.hidden = false; document.body.style.overflow = 'hidden'; $('.sheet', s).scrollTop = 0; }
+function openSheet(html) { const s = $('#sheet'); $('#sheetBody').innerHTML = html; setTimeout(hydrateMedia, 0); s.hidden = false; document.body.style.overflow = 'hidden'; $('.sheet', s).scrollTop = 0; }
 function closeSheet() { const s = $('#sheet'); if (s) s.hidden = true; document.body.style.overflow = ''; S.form = null; }
 const sheetHead = t => `<div class="sheet-h"><h2>${t}</h2><button class="icon-btn" data-act="closeSheet" aria-label="Tutup">${ic('x')}</button></div>`;
 const photoSrc = u => { if (/^data:/.test(u)) return u; const m = String(u).match(/\/d\/([\w-]{20,})/) || String(u).match(/[?&]id=([\w-]{20,})/); return m ? 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1000' : u; };
+const driveIdOf = u => { const m = String(u).match(/\/d\/([\w-]{20,})/) || String(u).match(/[?&]id=([\w-]{20,})/); return m ? m[1] : ''; };
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const MEDIA = new Map();
+function hydrateMedia() {
+  document.querySelectorAll('img[data-drive]:not([data-ok])').forEach(img => {
+    const id = img.dataset.drive; img.dataset.ok = '1';
+    const thumb = 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1200';
+    if (DEMO) { img.src = thumb; return; }
+    if (MEDIA.has(id)) { img.src = MEDIA.get(id); return; }
+    call('media', { id }).then(r => { MEDIA.set(id, r.data); document.querySelectorAll('img[data-drive="' + id + '"]').forEach(x => { x.src = r.data; }); })
+      .catch(() => { img.src = thumb; });
+  });
+}
+const imgTag = (u, cls, alt) => { const id = /^data:/.test(u) ? '' : driveIdOf(u); return id ? `<img class="${cls || ''}" src="${BLANK}" data-drive="${id}" alt="${alt || ''}" loading="lazy">` : `<img class="${cls || ''}" src="${esc(u)}" alt="${alt || ''}" loading="lazy">`; };
 const isVideo = u => /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(String(u));
 const posterOf = u => /^https:\/\/qurbandong-odot\.netlify\.app\/media\/.+\.mp4$/.test(u) ? u.replace(/\.mp4$/, '.jpg') : '';
 const PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
 const gallery = fotos => fotos && fotos.length ? `<div class="gallery">${fotos.map(u => isVideo(u)
   ? `<div class="vid"><video src="${esc(u)}" controls playsinline preload="none" ${posterOf(u) ? `poster="${esc(posterOf(u))}"` : ''}></video></div>`
-  : `<a href="${esc(/^data:/.test(u) ? '#' : u)}" target="_blank" rel="noopener"><img src="${esc(photoSrc(u))}" alt="Foto bukti" loading="lazy"></a>`).join('')}</div>` : '';
+  : `<div class="pic">${imgTag(u, '', 'Foto bukti')}</div>`).join('')}</div>` : '';
 const kvList = pairs => `<div class="panel"><div class="kv">${pairs.filter(p => p[1] !== '' && p[1] != null).map(p => `<div><span>${p[0]}</span><b>${p[1]}</b></div>`).join('')}</div></div>`;
 const adminBtns = (kind, row) => isAdmin() ? `<div class="btn-row"><button class="btn ghost" data-act="form" data-v="${kind}" data-row="${row}">${ic('edit')} Ubah</button><button class="btn danger" data-act="askDelete" data-v="${kind}" data-row="${row}">${ic('trash')} Hapus</button></div><div id="delBox"></div>` : '';
 const proofBlock = (fotos, ref) => fotos.length ? `<div class="sec"><span class="flabel">Bukti foto (${fotos.length})</span>${gallery(fotos)}</div>`
@@ -933,8 +950,8 @@ function photoField(label) {
 }
 function renderPhotos() {
   const el = $('#photos'); if (!el || !S.form) return;
-  el.innerHTML = S.form.photos.map((p, i) => `<div class="pthumb">${p.kind !== 'new' && isVideo(p.url) ? (posterOf(p.url) ? `<img src="${esc(posterOf(p.url))}" alt="">` : `<video src="${esc(p.url)}" muted preload="metadata"></video>`) : `<img src="${esc(p.kind === 'new' ? p.data : photoSrc(p.url))}" alt="">`}<button type="button" data-act="rmPhoto" data-i="${i}" aria-label="Hapus foto">${ic('x')}</button></div>`).join('')
-    + `<label class="ph-add">${ic('cam')}<span>Tambah foto</span><input type="file" accept="${IMG_ACCEPT}" multiple data-on="pickPhoto" aria-label="Pilih atau ambil foto"></label>`;
+  el.innerHTML = S.form.photos.map((p, i) => `<div class="pthumb">${p.kind !== 'new' && isVideo(p.url) ? (posterOf(p.url) ? `<img src="${esc(posterOf(p.url))}" alt="">` : `<video src="${esc(p.url)}" muted preload="metadata"></video>`) : (p.kind === 'new' ? `<img src="${esc(p.data)}" alt="">` : imgTag(p.url))}<button type="button" data-act="rmPhoto" data-i="${i}" aria-label="Hapus foto">${ic('x')}</button></div>`).join('')
+    + (setTimeout(hydrateMedia, 0), '') + `<label class="ph-add">${ic('cam')}<span>Tambah foto</span><input type="file" accept="${IMG_ACCEPT}" multiple data-on="pickPhoto" aria-label="Pilih atau ambil foto"></label>`;
 }
 function openForm(kind, row, extra) {
   const C = S.C, cfg = C.cfg;
