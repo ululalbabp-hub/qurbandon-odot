@@ -1,6 +1,6 @@
 // Service worker Qurbandong Odot (khusus folder /odot/). Ambil dari jaringan dulu, cadangan dari cache saat offline.
-const CACHE = 'odot-v12';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './config.js', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+const CACHE = 'odot-v13';
+const ASSETS = ['./', './index.html', './manifest.webmanifest', './config.js', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './fonts/pt-400.woff2', './fonts/pt-600.woff2', './fonts/pt-700.woff2', './fonts/pc-800.woff2'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () { return self.skipWaiting(); }));
 });
