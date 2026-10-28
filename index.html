@@ -563,6 +563,9 @@ const S = {
   form: null, busy: false
 };
 const isAdmin = () => S.user && S.user.role === 'pengelola';
+const isStaf = () => S.user && S.user.role === 'staf';
+const canInput = () => isAdmin() || isStaf();
+const roleName = r => r === 'pengelola' ? 'Pengelola' : r === 'staf' ? 'Staf' : 'Investor';
 
 // ---------- API ----------
 function call(action, payload) {
@@ -606,7 +609,7 @@ function mockDo(action, p) {
       if (!u || p.password !== 'demo') throw new Error('Username atau password salah. Akun demo: admin / demo atau investor / demo.');
       return { token: 'demo-' + u.username, user: { username: u.username, nama: u.nama, role: u.role } };
     }
-    case 'getData': { const u = who(); return JSON.parse(JSON.stringify({ kas: M.kas, jual: M.jual, prod: M.prod, mit: M.mit, pred: M.pred || { blok: [], est: [] }, cfg: M.cfg, today: M.today, sheetUrl: u.role === 'pengelola' ? M.sheetUrl : '', user: { username: u.username, nama: u.nama, role: u.role } })); }
+    case 'getData': { const u = who(); const d = JSON.parse(JSON.stringify({ kas: M.kas, jual: M.jual, prod: M.prod, mit: M.mit, pred: M.pred || { blok: [], est: [] }, cfg: M.cfg, today: M.today, sheetUrl: u.role === 'pengelola' ? M.sheetUrl : '', user: { username: u.username, nama: u.nama, role: u.role } })); if (u.role === 'staf') { d.kas = d.kas.filter(k => k.kat === 'Biaya Bibit').map(k => ({ row: k.row, tgl: k.tgl, kat: k.kat, ket: k.ket, masuk: 0, keluar: 0, ref: '', foto: [] })); d.jual = []; d.mit = d.mit.filter(m => m.kat !== 'Keuangan'); delete d.cfg.PLAFON; } return d; }
     case 'logout': return {};
     case 'changePassword': throw new Error('Mode demo: password tidak dapat diubah.');
     case 'upload': return { url: p.data };
@@ -617,7 +620,7 @@ function mockDo(action, p) {
       if (!p.row && p.catatKas && p.status === 'Lunas') save('kas', { tgl: p.tgl, kat: 'Pendapatan Penjualan', ket: 'Penjualan odot ' + p.blok + ' ' + nf.format(p.kg) + ' kg' + (p.pembeli ? ' – ' + p.pembeli : ''), masuk: p.kg * p.harga, keluar: 0, ref: 'Penjualan baris ' + out.row, foto: p.foto || [] });
       return out;
     }
-    case 'saveProd': { const r = { row: p.row, tgl: p.tgl, blok: p.blok, keg: p.keg, panen: +p.panen || 0, kejadian: p.kejadian, keparahan: p.keparahan || '-', tindak: p.tindak || '', status: p.status, foto: p.foto || [] }; if (!r.row) delete r.row; return save('prod', r); }
+    case 'saveProd': { if (p.row && who().role === 'staf') throw new Error('Staf hanya bisa menambah catatan baru. Minta pengelola untuk mengubah data.'); const r = { row: p.row, tgl: p.tgl, blok: p.blok, keg: p.keg, panen: +p.panen || 0, kejadian: p.kejadian, keparahan: p.keparahan || '-', tindak: p.tindak || '', status: p.status, foto: p.foto || [] }; if (!r.row) delete r.row; return save('prod', r); }
     case 'saveMit': {
       const r = { row: p.row, risiko: p.risiko, kat: p.kat, p: +p.p, d: +p.d, langkah: p.langkah, pj: p.pj || '', target: p.target || '', status: p.status, catatan: p.catatan || '', diubah: 'baru saja · ' + who().nama };
       if (!r.row) { delete r.row; r.tgl = M.today; r.id = 'R-' + String(M.mit.length + 1).padStart(2, '0'); }
@@ -676,7 +679,8 @@ function compute(D) {
 // ---------- Sinyal otomatis (dasar mitigasi) ----------
 function signals(C, D) {
   const out = [], t = C.today;
-  if (C.saldo < 0) out.push({ sev: 'crit', t: 'Saldo kas minus ' + rp(-C.saldo), d: 'Pengeluaran ' + rpS(C.totOut) + ' melebihi kas masuk ' + rpS(C.totIn) + '. Selisih saat ini ditalangi; perlu pencairan modal atau penundaan belanja.' });
+  const fin = !isStaf();
+  if (fin && C.saldo < 0) out.push({ sev: 'crit', t: 'Saldo kas minus ' + rp(-C.saldo), d: 'Pengeluaran ' + rpS(C.totOut) + ' melebihi kas masuk ' + rpS(C.totIn) + '. Selisih saat ini ditalangi; perlu pencairan modal atau penundaan belanja.' });
   if (C.targetToDate > 0) {
     const r = C.panenKg / C.targetToDate;
     if (r < .8) out.push({ sev: r < .5 ? 'crit' : 'warn', t: 'Panen ' + kg(C.panenKg) + ' dari target ' + kg(C.targetToDate), d: 'Target kumulatif proposal sampai ' + mLong(C.thisMonth) + '. Capaian ' + pct(r) + '.' });
@@ -685,13 +689,13 @@ function signals(C, D) {
     const g = daysBetween(C.lastProd, t);
     if (g > 7) out.push({ sev: g > 30 ? 'crit' : 'warn', t: 'Catatan lapangan terakhir ' + dLong(C.lastProd), d: g + ' hari tanpa laporan kegiatan. Kesepakatan: update minimal 1× per minggu.' });
   } else out.push({ sev: 'warn', t: 'Belum ada catatan kegiatan lapangan', d: 'Catat kegiatan tanam, pemupukan, dan panen per blok.' });
-  if (C.lastKas && daysBetween(C.lastKas, t) > 14) out.push({ sev: 'warn', t: 'Transaksi kas terakhir ' + dLong(C.lastKas), d: daysBetween(C.lastKas, t) + ' hari tanpa transaksi tercatat. Pastikan semua belanja sudah diinput.' });
-  if (C.noBukti.length) out.push({ sev: 'warn', t: C.noBukti.length + ' dari ' + C.kas.length + ' transaksi kas belum punya bukti', d: 'Total ' + rpS(sum(C.noBukti, k => k.keluar + k.masuk)) + '. Unggah foto nota/kuitansi lewat menu Mutasi.', act: 'filterNoBukti' });
+  if (fin && C.lastKas && daysBetween(C.lastKas, t) > 14) out.push({ sev: 'warn', t: 'Transaksi kas terakhir ' + dLong(C.lastKas), d: daysBetween(C.lastKas, t) + ' hari tanpa transaksi tercatat. Pastikan semua belanja sudah diinput.' });
+  if (fin && C.noBukti.length) out.push({ sev: 'warn', t: C.noBukti.length + ' dari ' + C.kas.length + ' transaksi kas belum punya bukti', d: 'Total ' + rpS(sum(C.noBukti, k => k.keluar + k.masuk)) + '. Unggah foto nota/kuitansi lewat menu Mutasi.', act: 'filterNoBukti' });
   const dupMap = {}; C.kas.forEach(k => { const key = k.kat + '|' + (k.masuk || 0) + '|' + (k.keluar || 0) + '|' + k.ket.toLowerCase().replace(/[^a-z0-9]/g, ''); (dupMap[key] = dupMap[key] || []).push(k); });
-  Object.values(dupMap).filter(a => a.length > 1).forEach(a => out.push({ sev: 'warn', t: 'Kemungkinan entri ganda: ' + a[0].ket.trim(), d: a.length + '× ' + rp(a[0].keluar || a[0].masuk) + ' pada ' + a.map(k => dLong(k.tgl)).join(', ') + '. Pastikan memang dua pembayaran berbeda.' }));
+  if (fin) Object.values(dupMap).filter(a => a.length > 1).forEach(a => out.push({ sev: 'warn', t: 'Kemungkinan entri ganda: ' + a[0].ket.trim(), d: a.length + '× ' + rp(a[0].keluar || a[0].masuk) + ' pada ' + a.map(k => dLong(k.tgl)).join(', ') + '. Pastikan memang dua pembayaran berbeda.' }));
   C.prod.filter(p => p.status === 'Proses' && p.tgl && daysBetween(p.tgl, t) > 14).forEach(p => out.push({ sev: p.keparahan === 'Tinggi' ? 'crit' : 'warn', t: p.keg + ' ' + p.blok + ' masih "Proses" sejak ' + dLong(p.tgl), d: (p.kejadian || '') + '. Perbarui status atau tindak lanjutnya.' }));
-  if (C.piutang > 0) out.push({ sev: 'warn', t: 'Piutang penjualan ' + rp(C.piutang), d: 'Penjualan berstatus Belum Lunas.' });
-  if (C.plafonUsed > .85) out.push({ sev: 'warn', t: 'Plafon modal terpakai ' + pct(C.plafonUsed), d: 'Sisa ' + rpS(C.cfg.PLAFON - C.modal) + ' dari plafon ' + rpS(C.cfg.PLAFON) + '.' });
+  if (fin && C.piutang > 0) out.push({ sev: 'warn', t: 'Piutang penjualan ' + rp(C.piutang), d: 'Penjualan berstatus Belum Lunas.' });
+  if (fin && C.plafonUsed > .85) out.push({ sev: 'warn', t: 'Plafon modal terpakai ' + pct(C.plafonUsed), d: 'Sisa ' + rpS(C.cfg.PLAFON - C.modal) + ' dari plafon ' + rpS(C.cfg.PLAFON) + '.' });
   D.mit.filter(m => m.target && m.target < t && m.status !== 'Selesai').forEach(m => out.push({ sev: 'info', t: m.id + ' melewati target ' + dLong(m.target), d: m.risiko }));
   const rank = { crit: 0, warn: 1, info: 2 };
   out.sort((a, b) => rank[a.sev] - rank[b.sev]);
@@ -782,7 +786,7 @@ function renderLogin(msg) {
       <div id="loginErr"></div>
       <button class="btn primary block" type="submit">Masuk</button>
       ${!IS_GAS && !DEMO ? `<details class="srv" id="srvBox"><summary>Alamat server</summary><div class="srv-in"><input class="inp" id="srvUrl" value="${esc(API_URL)}" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="none" spellcheck="false"><button type="button" class="btn ghost sm" data-act="saveSrv">Simpan alamat server</button><span class="hint">Salin dari Apps Script: Terapkan → Kelola deployment → URL aplikasi web.</span></div></details>` : ''}
-      ${DEMO ? `<div class="demo-quick"><button type="button" class="btn ghost sm" data-act="demoLogin" data-u="admin">Coba sebagai Pengelola</button><button type="button" class="btn ghost sm" data-act="demoLogin" data-u="investor">Coba sebagai Investor</button></div>` : ''}
+      ${DEMO ? `<div class="demo-quick"><button type="button" class="btn ghost sm" data-act="demoLogin" data-u="admin">Coba sebagai Pengelola</button><button type="button" class="btn ghost sm" data-act="demoLogin" data-u="investor">Coba sebagai Investor</button><button type="button" class="btn ghost sm" data-act="demoLogin" data-u="staf" style="grid-column:1 / -1">Coba sebagai Staf lapangan</button></div>` : ''}
     </form>
     <p class="login-foot">Pengelola: input & edit data · Investor: pantau laporan.<br>Lupa password? Hubungi pengelola Qurbandong Farm.</p>
   </div></div>`;
@@ -799,12 +803,12 @@ async function doLogin(username, password, remember) {
 function renderShell() {
   window.__qdfBooted = true;
   const ini = (S.user.nama || S.user.username).split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  const navs = [['home', 'home', 'Beranda'], ['mutasi', 'list', 'Mutasi'], ['fab'], ['lahan', 'sprout', 'Lahan'], ['mitigasi', 'shield', 'Mitigasi']].filter(n => n[0] !== 'fab' || isAdmin());
+  const navs = [['home', 'home', 'Beranda'], ['mutasi', 'list', 'Mutasi'], ['fab'], ['lahan', 'sprout', 'Lahan'], ['mitigasi', 'shield', 'Mitigasi']].filter(n => (n[0] !== 'fab' || canInput()) && (n[0] !== 'mutasi' || !isStaf()));
   $('#app').innerHTML = `
   <header class="topbar"><div class="topbar-in">${LOGO}
     <div class="brand-t"><b>Qurbandong <em>Odot</em></b><span>Usaha Tani Rumput Odot · ${esc(S.user.nama)}</span></div><div class="sp"></div>
     <button class="icon-btn bell" data-act="openFeed" aria-label="Pembaruan">${ic('bell')}<span class="dotn" id="bellCount" hidden></span></button>
-    <span class="role-pill">${isAdmin() ? 'Pengelola' : 'Investor'}</span>
+    <span class="role-pill">${roleName(S.user.role)}</span>
     <button class="avatar" data-act="nav" data-v="akun" aria-label="Akun">${esc(ini)}</button>
   </div></header>
   ${DEMO ? '<div class="demo-bar">Mode demo · data dari spreadsheet per ' + dLong(S.D.today) + ' · perubahan tidak tersimpan</div>' : ''}
@@ -833,7 +837,29 @@ let toastT;
 function toast(m) { const t = $('#toast'); if (!t) return; t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2800); }
 
 // ---------- View: Beranda ----------
+function viewHomeStaf() {
+  const C = S.C, PR = predData(), sig = signals(C, S.D), nx = PR.next;
+  const gap = C.lastProd ? daysBetween(C.lastProd, C.today) : null;
+  return `
+  <section class="intro"><p class="hello">${greet()}, <b>${esc((S.user.nama || '').split(/\s+/)[0])}</b></p><p class="eyebrow">Produksi lahan · ${dLong(C.today)}</p><h1>Usaha Tani Rumput Odot</h1>
+    <p class="muted">${C.lastProd ? 'Catatan lapangan terakhir ' + dLong(C.lastProd) + (gap > 0 ? ' (' + gap + ' hari lalu)' : ' (hari ini)') : 'Belum ada catatan lapangan'}</p></section>
+  <section class="hero" aria-label="Panen berikutnya">
+    <svg class="blades" viewBox="0 0 150 110" aria-hidden="true"><path d="M20 110C22 70 30 40 46 12"/><path d="M38 110c2-34 10-60 30-86"/><path d="M58 110c0-30 8-52 26-74"/><path d="M80 110c-2-26 4-48 22-66"/><path d="M100 110c-4-22 0-40 16-58"/><path d="M120 110c-6-18-4-34 8-48"/></svg>
+    <div><div class="hero-lbl">Panen berikutnya</div><div class="hero-num">${nx ? esc(nx.blok) : '—'}</div>
+    <div class="hero-sub">${nx ? esc(nx.label) + ' · ' + dLong(nx.date) + ' · perkiraan ' + rng(nx.low, nx.high) : 'Belum ada jadwal panen'}</div></div>
+    <div class="plafon"><div class="pl-row"><span>Panen tercatat</span><b>${kgS(C.panenKg)}</b></div>
+    <div class="pl-row sm"><span>Proyeksi tahun ke-1</span><span>${rng(PR.th1.low, PR.th1.high)}</span></div></div>
+  </section>
+  <div class="stats">
+    <button class="choice" data-act="form" data-v="prod" data-keg="Panen" style="grid-template-columns:40px 1fr"><span class="tx-ic harv">${ic('harvest')}</span><span><b>Catat panen</b><span class="d">kg + foto timbangan</span></span></button>
+    <button class="choice" data-act="form" data-v="prod" style="grid-template-columns:40px 1fr"><span class="tx-ic prod">${ic('sprout')}</span><span><b>Catat kegiatan</b><span class="d">+ foto/video lahan</span></span></button>
+  </div>
+  <section class="sec"><div class="sec-h"><h2>Perlu perhatian</h2><button class="link" data-act="nav" data-v="mitigasi">Mitigasi ${ic('chev')}</button></div>
+    <div class="sigs">${sig.length ? sig.slice(0, 3).map(sigHtml).join('') : sigHtml({ sev: 'ok', t: 'Lahan aman', d: 'Tidak ada sinyal risiko produksi saat ini.' })}</div></section>
+  ${homeProd(C)}`;
+}
 function viewHome() {
+  if (isStaf()) return viewHomeStaf();
   const C = S.C, cfg = C.cfg;
   const sig = signals(C, S.D);
   const gap = C.lastInput ? daysBetween(C.lastInput, C.today) : null;
@@ -1019,7 +1045,7 @@ function viewPred() {
         ${B.late ? `<p class="note" style="background:var(--warn-soft);color:var(--warn)">Umur tanam sudah lewat perkiraan panen pertama tetapi belum ada panen tercatat, jadi jadwal digeser ke minggu depan. ${isAdmin() ? 'Isi estimasi panen agar jadwal lebih tepat.' : ''}</p>` : ''}
         <div class="cuts">${up.map((c, i) => `<div class="cut ${i === 0 ? 'next' : ''}"><span class="cut-d"><b>${dLong(c.date).replace(/ \d{4}$/, '')}</b>${mLabel(c.date.slice(0, 7)).slice(-2)}</span><span class="cut-m">Panen ke-${c.idx + 1} · ${esc(c.label)}${c.src === 'estimasi' && c.idx === 0 ? ' <span class="tag info">estimasi pengelola</span>' : ''}${c.calibrated ? ' <span class="tag ok">terkalibrasi</span>' : ''}</span><b class="cut-v">${rng(c.low, c.high)}</b></div>`).join('') || '<p class="small muted" style="margin:0">Tidak ada jadwal panen sampai akhir kerjasama.</p>'}</div>
         ${B.ests.length ? `<div class="chips">${B.ests.map(e => `<span class="chip est-chip">${Math.round(e.porsi * 100)}% · ${mLabel(e.bulan)}${isAdmin() ? `<button data-act="predEst" data-b="${esc(B.blok)}" data-row="${e.row}" aria-label="Ubah estimasi">${ic('edit')}</button>` : ''}</span>`).join('')}</div>` : ''}
-        ${isAdmin() ? `<button class="btn ghost sm" data-act="predEst" data-b="${esc(B.blok)}">${ic('plus')} Estimasi siap panen</button>` : ''}`
+        ${canInput() ? `<button class="btn ghost sm" data-act="predEst" data-b="${esc(B.blok)}">${ic('plus')} Estimasi siap panen</button>` : ''}`
       : `<p class="small muted" style="margin:0">Belum ditanam. ${isAdmin() ? 'Isi tanggal tanam dan jumlah rumpun setelah penanaman.' : ''}</p>${isAdmin() ? `<button class="btn ghost sm" data-act="predBlok" data-b="${esc(B.blok)}">${ic('edit')} Atur blok</button>` : ''}`}
     </article>`;
   }).join('');
@@ -1034,7 +1060,7 @@ function viewPred() {
   </section>
   ${nx ? `<div class="sig sev-info">${ic('harvest')}<div><span class="res-k" style="color:var(--info)">Panen berikutnya</span><b>${esc(nx.blok)} · ${esc(nx.label)} · ${dLong(nx.date)}</b><p>Perkiraan hasil ${rng(nx.low, nx.high)}${nx.src === 'estimasi' ? ' (estimasi pengelola)' : ''}.</p></div></div>` : ''}
   <div class="panel"><div class="ph"><h3>Prediksi per bulan</h3><div class="legend"><span><i style="background:var(--c-target)"></i>Target</span><span><i style="background:var(--accent);opacity:.6"></i>Rentang prediksi</span><span><i style="background:var(--c-in)"></i>Aktual</span></div></div>${predChart(PR)}</div>
-  <section class="sec"><div class="sec-h"><h2>Per blok</h2>${isAdmin() ? `<button class="btn accent sm" data-act="predEst">${ic('plus')} Estimasi</button>` : ''}</div>${blocks}</section>
+  <section class="sec"><div class="sec-h"><h2>Per blok</h2>${canInput() ? `<button class="btn accent sm" data-act="predEst">${ic('plus')} Estimasi</button>` : ''}</div>${blocks}</section>
   <details class="panel method"><summary><b>Cara prediksi dihitung</b></summary>
     <ol class="steps">
       <li><b>Belum ada panen:</b> jumlah rumpun hidup × hasil per rumpun per panen. Panen ke-1 ${P.YPR[0][0].toString().replace('.', ',')}–${P.YPR[0][1].toString().replace('.', ',')} kg, ke-2 ${P.YPR[1][0].toString().replace('.', ',')}–${P.YPR[1][1].toString().replace('.', ',')} kg, ke-3 dst ${P.YPR[2][0].toString().replace('.', ',')}–${P.YPR[2][1].toString().replace('.', ',')} kg per rumpun; musim kemarau ×${P.DRY.toString().replace('.', ',')}.</li>
@@ -1088,7 +1114,7 @@ function viewLahan() {
     <div class="blok-top"><b>${esc(b.b)}</b><span class="muted num">${kg(b.panen)} / ${kgS(b.target)}</span></div>
     <div class="track gold"><i style="width:${b.target ? Math.min(100, b.panen / b.target * 100) : 0}%"></i></div>
     <span class="small muted">${b.last ? 'Terakhir: ' + esc(b.last.keg) + ' · ' + dLong(b.last.tgl) : 'Belum ada kegiatan tercatat'}${b.open ? ' · <span class="tag warn">' + b.open + ' proses</span>' : ''}</span></div></div>`).join('')}</div>
-  <div class="sec"><div class="sec-h"><h2>Riwayat kegiatan</h2>${isAdmin() ? `<button class="btn ghost sm" data-act="form" data-v="prod">${ic('plus')} Kegiatan</button>` : ''}</div>
+  <div class="sec"><div class="sec-h"><h2>Riwayat kegiatan</h2>${canInput() ? `<button class="btn ghost sm" data-act="form" data-v="prod">${ic('plus')} Kegiatan</button>` : ''}</div>
   <div class="chips"><button class="chip" aria-pressed="${!F.blok}" data-act="lahanBlok" data-v="">Semua blok</button>${C.cfg.BLOK.map(b => `<button class="chip" aria-pressed="${F.blok === b}" data-act="lahanBlok" data-v="${b}">${b}</button>`).join('')}</div>
   <div class="tl">${list.length ? list.map(tlItem).join('') : '<div class="empty"><b>Belum ada kegiatan di blok ini</b></div>'}</div></div>`;
 }
@@ -1479,11 +1505,11 @@ async function disablePush() {
 
 // ---------- View: Akun ----------
 function viewAkun() {
-  return `<section class="intro"><p class="eyebrow">Akun</p><h1>${esc(S.user.nama)}</h1><p class="muted">@${esc(S.user.username)} · ${isAdmin() ? 'Pengelola (input & edit data)' : 'Investor (lihat laporan)'}</p></section>
+  return `<section class="intro"><p class="eyebrow">Akun</p><h1>${esc(S.user.nama)}</h1><p class="muted">@${esc(S.user.username)} · ${isAdmin() ? 'Pengelola (input & edit data)' : isStaf() ? 'Staf lapangan (input produksi lahan)' : 'Investor (lihat laporan)'}</p></section>
   <div class="panel"><h3>Pasang di layar utama HP</h3>
     <div class="kv"><div><span>Android (Chrome)</span><b>Menu ⋮ → Tambahkan ke layar utama</b></div><div><span>iPhone (Safari)</span><b>Bagikan ⬆ → Tambah ke Layar Utama</b></div></div>
     <p class="note">Buka lewat tautan pintasan Qurbandong yang dibagikan pengelola agar ikon logo dan nama aplikasi tampil di layar utama.</p></div>
-  ${reportPanel()}
+  ${isStaf() ? '' : reportPanel()}
   <div class="panel notif-box" id="notifBox">${notifPanel()}</div>
   ${isAdmin() && S.D.sheetUrl ? `<a class="btn ghost block" href="${esc(S.D.sheetUrl)}" target="_blank" rel="noopener">${ic('sheet')} Buka Google Sheet</a>` : ''}
   <button class="btn ghost block" data-act="refresh">${ic('refresh')} Muat ulang data</button>
@@ -1499,7 +1525,7 @@ async function loadUsers() {
   try {
     const us = await call('listUsers'); S.users = us;
     const el = $('#userList'); if (!el) return;
-    el.innerHTML = `<div class="group">${us.map(u => `<button class="tx" data-act="userForm" data-u="${esc(u.username)}"><span class="tx-ic ${u.role === 'pengelola' ? 'harv' : 'prod'}">${ic('user')}</span><span class="tx-main"><span class="tx-t">${esc(u.nama)}</span><span class="tx-m">@${esc(u.username)} · ${u.email ? esc(u.email) : '<span style="color:var(--neg)">email belum diisi</span>'}</span></span><span class="tx-amt"><span class="tag ${u.aktif ? (u.role === 'pengelola' ? 'warn' : 'info') : 'mute'}">${u.aktif ? esc(u.role) : 'nonaktif'}</span></span></button>`).join('')}</div>`;
+    el.innerHTML = `<div class="group">${us.map(u => `<button class="tx" data-act="userForm" data-u="${esc(u.username)}"><span class="tx-ic ${u.role === 'pengelola' ? 'harv' : u.role === 'staf' ? 'in' : 'prod'}">${ic('user')}</span><span class="tx-main"><span class="tx-t">${esc(u.nama)}</span><span class="tx-m">@${esc(u.username)} · ${u.email ? esc(u.email) : '<span style="color:var(--neg)">email belum diisi</span>'}</span></span><span class="tx-amt"><span class="tag ${u.aktif ? (u.role === 'pengelola' ? 'warn' : u.role === 'staf' ? 'ok' : 'info') : 'mute'}">${u.aktif ? esc(u.role) : 'nonaktif'}</span></span></button>`).join('')}</div>`;
   } catch (e) { const el = $('#userList'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 
@@ -1639,6 +1665,11 @@ function katOptions(jenis, sel) {
   return list.map(k => `<option ${k === sel ? 'selected' : ''}>${esc(k)}</option>`).join('');
 }
 function openInputChooser() {
+  if (isStaf()) return openSheet(`${sheetHead('Input produksi lahan')}
+    <button class="choice" data-act="form" data-v="prod" data-keg="Panen"><span class="tx-ic harv">${ic('harvest')}</span><span><b>Hasil panen</b><span class="d">Kg panen per blok + foto timbangan</span></span>${ic('chev')}</button>
+    <button class="choice" data-act="form" data-v="prod"><span class="tx-ic prod">${ic('sprout')}</span><span><b>Kegiatan & kendala lapangan</b><span class="d">Tanam, pemupukan, penyemprotan, perawatan + foto/video</span></span>${ic('chev')}</button>
+    <button class="choice" data-act="predEst"><span class="tx-ic out">${ic('shield')}</span><span><b>Estimasi siap panen</b><span class="d">Mis. 1/3 Blok A siap panen bulan depan</span></span>${ic('chev')}</button>
+    <p class="note">Catatan yang sudah tersimpan hanya bisa diubah atau dihapus oleh pengelola.</p>`);
   openSheet(`${sheetHead('Input data baru')}
     <button class="choice" data-act="form" data-v="kas"><span class="tx-ic out">${ic('out')}</span><span><b>Transaksi kas</b><span class="d">Biaya, pencairan modal, pemasukan lain + foto nota</span></span>${ic('chev')}</button>
     <button class="choice" data-act="form" data-v="prod" data-keg="Panen"><span class="tx-ic harv">${ic('harvest')}</span><span><b>Hasil panen</b><span class="d">Kg panen per blok + foto timbangan</span></span>${ic('chev')}</button>
@@ -1653,7 +1684,7 @@ function userForm(username) {
     <div class="field"><label for="u-un">Username</label><input class="inp" id="u-un" name="username" value="${esc(u ? u.username : '')}" ${u ? 'readonly' : ''} autocapitalize="none" placeholder="huruf kecil, tanpa spasi"></div>
     <div class="field"><label for="u-nm">Nama</label><input class="inp" id="u-nm" name="nama" value="${esc(u ? u.nama : '')}"></div>
     <div class="field"><label for="u-em">Email <span class="muted">(untuk laporan bulanan)</span></label><input class="inp" id="u-em" name="email" type="email" inputmode="email" autocapitalize="none" value="${esc(u ? (u.email || '') : '')}" placeholder="nama@email.com"></div>
-    <div class="field"><span class="flabel">Peran</span>${opts('role', ['investor', 'pengelola'], u ? u.role : 'investor', 'split', ['Investor (lihat)', 'Pengelola (input)'])}</div>
+    <div class="field"><span class="flabel">Peran</span>${opts('role', ['investor', 'staf', 'pengelola'], u ? u.role : 'investor', '', ['Investor (lihat)', 'Staf (input lahan)', 'Pengelola (semua)'])}</div>
     ${u ? `<label class="check"><input type="checkbox" name="aktif" ${u.aktif ? 'checked' : ''}><span>Akun aktif (bisa login)</span></label>` : ''}
     <div class="field"><label for="u-pw">${u ? 'Reset password <span class="muted">(kosongkan jika tidak diubah)</span>' : 'Password awal'}</label><input class="inp" id="u-pw" name="password" type="text" autocomplete="off" minlength="6"></div>
     <div id="formErr"></div><button class="btn primary block" type="submit">Simpan</button></form>`);
