@@ -372,6 +372,33 @@ textarea.inp{min-height:84px;resize:vertical}
 .choice span.d{font-size:12.5px;color:var(--ink-2)}
 .choice .tx-ic{width:46px;height:46px;border-radius:14px}
 .detail-amt{font-family:var(--f-display);font-size:42px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.band{position:relative;height:12px;border-radius:99px;background:var(--surface-2);overflow:visible;margin:4px 0 2px}
+.band.on-dark{background:var(--hero-track)}
+.band-r{position:absolute;top:0;bottom:0;border-radius:99px;background:linear-gradient(90deg,#FFBA6C,var(--accent));transform-origin:left;animation:growX 1s var(--ease) .2s both}
+.band-t{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--brand)}
+.band.on-dark .band-t{background:#FFE5C8}
+:root[data-theme="dark"] .band-t{background:var(--ink)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .band-t{background:var(--ink)}}
+.pblok{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px;display:grid;gap:10px;box-shadow:var(--shadow)}
+.pblok-h{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:12px;align-items:center}
+.pblok-h b{display:block;font-family:var(--f-display);font-size:20px}
+.pblok .kv div{padding:7px 0}
+.cuts{display:grid;gap:6px}
+.cut{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface-2);border-radius:12px;padding:8px 10px}
+.cut.next{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.cut-d{font-size:11px;color:var(--ink-3);line-height:1.1;text-align:center}
+.cut-d b{display:block;font-family:var(--f-display);font-size:16px;color:var(--ink)}
+.cut-m{font-size:12.5px;color:var(--ink-2);min-width:0}
+.cut-v{font-family:var(--f-display);font-size:17px;white-space:nowrap;color:var(--accent-ink)}
+.est-chip{display:inline-flex;align-items:center;gap:6px;background:var(--info-soft)!important;color:var(--info)!important;border-color:transparent!important}
+.est-chip button{border:none;background:none;color:inherit;padding:0;display:grid}
+.est-chip .ic svg{width:14px;height:14px}
+.pred-cta{text-align:left;width:100%;font:inherit;color:inherit;cursor:pointer}
+.pred-cta .stats > div{display:grid;gap:1px;min-width:0}
+.pred-cta .pv{font-family:var(--f-display);font-size:22px;line-height:1.15}
+.method summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between}
+.method summary::after{content:"+";font-weight:800;color:var(--accent)}
+.method[open] summary::after{content:"–"}
 .rep-frame{width:100%;height:72vh;border:1px solid var(--line);border-radius:16px;background:#FFF6EC}
 .gallery{display:grid;grid-template-columns:1fr;gap:8px}
 .gallery .pic{border-radius:14px;overflow:hidden;background:var(--surface-2);min-height:120px}
@@ -530,6 +557,7 @@ function animateNumbers(root) {
   });
 }
 const S = {
+  lahanTab: 'keg',
   token: null, user: null, D: null, C: null, view: 'home', homeTab: 'keu', mutTab: 'kas',
   kasF: { bulan: '', kat: '', q: '', noBukti: false }, panF: { jenis: '' }, lahanF: { blok: '' }, mitF: { status: '' },
   form: null, busy: false
@@ -578,7 +606,7 @@ function mockDo(action, p) {
       if (!u || p.password !== 'demo') throw new Error('Username atau password salah. Akun demo: admin / demo atau investor / demo.');
       return { token: 'demo-' + u.username, user: { username: u.username, nama: u.nama, role: u.role } };
     }
-    case 'getData': { const u = who(); return JSON.parse(JSON.stringify({ kas: M.kas, jual: M.jual, prod: M.prod, mit: M.mit, cfg: M.cfg, today: M.today, sheetUrl: u.role === 'pengelola' ? M.sheetUrl : '', user: { username: u.username, nama: u.nama, role: u.role } })); }
+    case 'getData': { const u = who(); return JSON.parse(JSON.stringify({ kas: M.kas, jual: M.jual, prod: M.prod, mit: M.mit, pred: M.pred || { blok: [], est: [] }, cfg: M.cfg, today: M.today, sheetUrl: u.role === 'pengelola' ? M.sheetUrl : '', user: { username: u.username, nama: u.nama, role: u.role } })); }
     case 'logout': return {};
     case 'changePassword': throw new Error('Mode demo: password tidak dapat diubah.');
     case 'upload': return { url: p.data };
@@ -598,6 +626,9 @@ function mockDo(action, p) {
     case 'deleteRow': { const list = M[p.sheet]; const i = list.findIndex(x => x.row === p.row); if (i >= 0) list.splice(i, 1); return { done: true }; }
     case 'listUsers': return M.users.map(u => ({ username: u.username, nama: u.nama, role: u.role, aktif: true, login: '' }));
     case 'saveUser': throw new Error('Mode demo: pengguna tidak dapat ditambah.');
+    case 'savePredBlok': { M.pred = M.pred || { blok: [], est: [] }; const ex = M.pred.blok.find(b => b.blok === p.blok); const r = { blok: p.blok, tanam: p.tanam, rumpun: +p.rumpun || 0, catatan: p.catatan || '' }; if (ex) Object.assign(ex, r); else M.pred.blok.push(Object.assign({ row: M.nextRow.mit++ }, r)); return { done: true }; }
+    case 'savePredEst': { M.pred = M.pred || { blok: [], est: [] }; const r = { blok: p.blok, porsi: +p.porsi, bulan: p.bulan, catatan: p.catatan || '' }; const ex = p.row && M.pred.est.find(e => e.row === p.row); if (ex) Object.assign(ex, r); else M.pred.est.push(Object.assign({ row: M.nextRow.mit++ }, r)); return { done: true }; }
+    case 'deletePredEst': { M.pred.est = M.pred.est.filter(e => e.row !== p.row); return { done: true }; }
     case 'sendReport': throw new Error('Mode demo: email tidak dikirim. Di aplikasi asli laporan terkirim ke email investor + PDF.');
   }
   throw new Error('Aksi tidak dikenal');
@@ -852,7 +883,12 @@ function homeKeu(C) {
 function homePanen(C) {
   const cfg = C.cfg, maxB = Math.max(...C.blok.map(b => b.target), 1);
   const avg = C.jualKg ? C.jualRp / C.jualKg : 0;
+  const PR = predData();
   return `
+  <button class="panel pred-cta" data-act="goPred"><div class="ph"><h3>Prediksi panen</h3>${ic('chev')}</div>
+    <div class="stats"><div><span class="small muted">Proyeksi tahun ke-1</span><b class="pv">${rng(PR.th1.low, PR.th1.high)}</b><span class="small muted">target ${tn(PR.th1.target)}</span></div>
+    <div><span class="small muted">Panen berikutnya</span><b class="pv">${PR.next ? esc(PR.next.blok) + ' · ' + mLabel(PR.next.date.slice(0, 7)) : '—'}</b><span class="small muted">${PR.next ? rng(PR.next.low, PR.next.high) : ''}</span></div></div>
+    ${bandBar(PR.th1.low, PR.th1.high, PR.th1.target)}</button>
   <div class="stats four">
     <div class="stat"><span class="k">Panen tercatat</span><span class="v">${kgS(C.panenKg)}</span><span class="s">${C.panenRows.length} kali panen</span></div>
     <div class="stat"><span class="k">Terjual</span><span class="v">${kgS(C.jualKg)}</span><span class="s">${C.jual.length} transaksi</span></div>
@@ -942,7 +978,103 @@ function tlItem(p) {
     <span class="tl-card" style="--sev:${sevVar}"><span class="t">${esc(p.kejadian || p.keg)}</span>
     <span class="m"><span class="tag mute">${esc(p.blok)}</span><span class="tag info">${esc(p.keg)}</span>${p.panen ? `<span class="tag ok">${kg(p.panen)}</span>` : ''}${p.keparahan && p.keparahan !== '-' ? `<span class="tag ${p.keparahan === 'Tinggi' ? 'crit' : 'warn'}">Kendala ${esc(p.keparahan.toLowerCase())}</span>` : ''}<span class="tag ${p.status === 'Selesai' ? 'ok' : 'warn'}">${esc(p.status || '—')}</span>${(p.foto || []).length ? ic('cam') : ''}</span></span></button>`;
 }
+// ---------- Prediksi panen ----------
+function predData() { return predictHarvest({ kas: S.D.kas, prod: S.D.prod, pred: S.D.pred || { blok: [], est: [] }, cfg: S.C.cfg, today: S.D.today }); }
+const tn = x => nf1.format((x || 0) / 1000) + ' t';
+const rng = (a, b) => nf1.format((a || 0) / 1000) + '–' + nf1.format((b || 0) / 1000) + ' t';
+function bandBar(low, high, target) {
+  const max = Math.max(high, target, 1) * 1.08, L = low / max * 100, W = Math.max(1.5, (high - low) / max * 100), T = target / max * 100;
+  return `<div class="band"><i class="band-r" style="left:${L}%;width:${W}%"></i>${target ? `<b class="band-t" style="left:${T}%"></b>` : ''}</div>`;
+}
+function predChart(PR) {
+  const rows = PR.months.slice(0, 12);
+  const W = 340, H = 196, L = 32, R = 6, T = 10, B = 26;
+  const hi = Math.max(1, ...rows.map(r => Math.max(r.high, r.target, r.actual)));
+  const step = niceMax(hi / 4), top = Math.ceil(hi / step) * step, y = v => T + (top - v) / top * (H - T - B);
+  const cw = (W - L - R) / rows.length, bw = Math.max(5, cw * .66);
+  let g = '';
+  for (let v = 0; v <= top + 1e-6; v += step) g += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 5}" y="${y(v) + 3}" text-anchor="end">${shortN(v, 'kg')}</text>`;
+  rows.forEach((r, i) => {
+    const cx = L + cw * i + cw / 2;
+    if (r.target) g += `<rect class="b" style="--i:${i}" x="${cx - bw / 2}" y="${y(r.target)}" width="${bw}" height="${y(0) - y(r.target)}" rx="3" fill="var(--c-target)"><title>${mLong(r.m)} target ${kg(r.target)}</title></rect>`;
+    if (r.high) g += `<rect class="b" style="--i:${i}" x="${cx - bw * .32}" y="${y(r.high)}" width="${bw * .64}" height="${Math.max(2, y(r.low) - y(r.high))}" rx="3" fill="var(--accent)" fill-opacity=".45" stroke="var(--accent)" stroke-width="1.2"><title>${mLong(r.m)} prediksi ${rng(r.low, r.high)}</title></rect><line x1="${cx - bw * .32}" x2="${cx + bw * .32}" y1="${y((r.low + r.high) / 2)}" y2="${y((r.low + r.high) / 2)}" stroke="var(--accent-ink)" stroke-width="1.6"/>`;
+    if (r.actual) g += `<rect class="b" style="--i:${i}" x="${cx - bw * .18}" y="${y(r.actual)}" width="${bw * .36}" height="${y(0) - y(r.actual)}" rx="2" fill="var(--c-in)"><title>${mLong(r.m)} aktual ${kg(r.actual)}</title></rect>`;
+    if (i % 2 === 0) g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${mLabel(r.m)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Prediksi panen bulanan">${g}</svg>`;
+}
+function viewPred() {
+  const PR = predData(), cfg = S.C.cfg;
+  const nx = PR.next;
+  const blocks = PR.blocks.map(B => {
+    const up = B.cuts.slice(0, 4);
+    return `<article class="pblok"><div class="pblok-h"><span class="blok-badge">${esc(B.blok.replace('Blok ', ''))}</span><div style="min-width:0"><b>${esc(B.blok)}</b><span class="small muted">${esc(B.status)}</span></div>
+      ${isAdmin() ? `<button class="icon-btn" data-act="predBlok" data-b="${esc(B.blok)}" aria-label="Atur ${esc(B.blok)}">${ic('edit')}</button>` : ''}</div>
+      ${B.tanam ? `<div class="kv">
+        <div><span>Tanggal tanam</span><b>${dLong(B.tanam)} <small class="muted">${B.tanamSrc === 'input' ? '' : '· dari catatan'}</small></b></div>
+        <div><span>Rumpun hidup</span><b>${nf.format(B.rumpun)} <small class="muted">${B.rumpunSrc === 'input' ? '' : '· perkiraan'}</small></b></div>
+        ${B.actualKg ? `<div><span>Panen aktual</span><b>${kg(B.actualKg)}</b></div>` : ''}
+        <div><span>Proyeksi tahun ke-1</span><b>${rng(B.th1Low, B.th1High)} <small class="muted">/ ${tn(B.target)}</small></b></div></div>
+        ${bandBar(B.th1Low, B.th1High, B.target)}
+        ${B.late ? `<p class="note" style="background:var(--warn-soft);color:var(--warn)">Umur tanam sudah lewat perkiraan panen pertama tetapi belum ada panen tercatat, jadi jadwal digeser ke minggu depan. ${isAdmin() ? 'Isi estimasi panen agar jadwal lebih tepat.' : ''}</p>` : ''}
+        <div class="cuts">${up.map((c, i) => `<div class="cut ${i === 0 ? 'next' : ''}"><span class="cut-d"><b>${dLong(c.date).replace(/ \d{4}$/, '')}</b>${mLabel(c.date.slice(0, 7)).slice(-2)}</span><span class="cut-m">Panen ke-${c.idx + 1} · ${esc(c.label)}${c.src === 'estimasi' && c.idx === 0 ? ' <span class="tag info">estimasi pengelola</span>' : ''}${c.calibrated ? ' <span class="tag ok">terkalibrasi</span>' : ''}</span><b class="cut-v">${rng(c.low, c.high)}</b></div>`).join('') || '<p class="small muted" style="margin:0">Tidak ada jadwal panen sampai akhir kerjasama.</p>'}</div>
+        ${B.ests.length ? `<div class="chips">${B.ests.map(e => `<span class="chip est-chip">${Math.round(e.porsi * 100)}% · ${mLabel(e.bulan)}${isAdmin() ? `<button data-act="predEst" data-b="${esc(B.blok)}" data-row="${e.row}" aria-label="Ubah estimasi">${ic('edit')}</button>` : ''}</span>`).join('')}</div>` : ''}
+        ${isAdmin() ? `<button class="btn ghost sm" data-act="predEst" data-b="${esc(B.blok)}">${ic('plus')} Estimasi siap panen</button>` : ''}`
+      : `<p class="small muted" style="margin:0">Belum ditanam. ${isAdmin() ? 'Isi tanggal tanam dan jumlah rumpun setelah penanaman.' : ''}</p>${isAdmin() ? `<button class="btn ghost sm" data-act="predBlok" data-b="${esc(B.blok)}">${ic('edit')} Atur blok</button>` : ''}`}
+    </article>`;
+  }).join('');
+  const P = PR.params;
+  return `
+  <section class="hero" aria-label="Proyeksi panen">
+    <svg class="blades" viewBox="0 0 150 110" aria-hidden="true"><path d="M20 110C22 70 30 40 46 12"/><path d="M38 110c2-34 10-60 30-86"/><path d="M58 110c0-30 8-52 26-74"/><path d="M80 110c-2-26 4-48 22-66"/><path d="M100 110c-4-22 0-40 16-58"/><path d="M120 110c-6-18-4-34 8-48"/></svg>
+    <div><div class="hero-lbl">Proyeksi panen tahun ke-1</div><div class="hero-num">${rng(PR.th1.low, PR.th1.high)}</div>
+    <div class="hero-sub">Target proposal ${tn(PR.th1.target)} · s.d. ${mLong(cfg.TH1_SELESAI)}${PR.th1.actual ? ' · sudah dipanen ' + kg(PR.th1.actual) : ''}</div></div>
+    <div class="plafon"><div class="pl-row"><span>Rentang vs target</span><b>${pct(PR.th1.low / (PR.th1.target || 1))}–${pct(PR.th1.high / (PR.th1.target || 1))}</b></div>${bandBar(PR.th1.low, PR.th1.high, PR.th1.target).replace('class="band"', 'class="band on-dark"')}
+    <div class="pl-row sm"><span>3 bulan ke depan</span><span>${rng(PR.next3.low, PR.next3.high)}</span></div></div>
+  </section>
+  ${nx ? `<div class="sig sev-info">${ic('harvest')}<div><span class="res-k" style="color:var(--info)">Panen berikutnya</span><b>${esc(nx.blok)} · ${esc(nx.label)} · ${dLong(nx.date)}</b><p>Perkiraan hasil ${rng(nx.low, nx.high)}${nx.src === 'estimasi' ? ' (estimasi pengelola)' : ''}.</p></div></div>` : ''}
+  <div class="panel"><div class="ph"><h3>Prediksi per bulan</h3><div class="legend"><span><i style="background:var(--c-target)"></i>Target</span><span><i style="background:var(--accent);opacity:.6"></i>Rentang prediksi</span><span><i style="background:var(--c-in)"></i>Aktual</span></div></div>${predChart(PR)}</div>
+  <section class="sec"><div class="sec-h"><h2>Per blok</h2>${isAdmin() ? `<button class="btn accent sm" data-act="predEst">${ic('plus')} Estimasi</button>` : ''}</div>${blocks}</section>
+  <details class="panel method"><summary><b>Cara prediksi dihitung</b></summary>
+    <ol class="steps">
+      <li><b>Belum ada panen:</b> jumlah rumpun hidup × hasil per rumpun per panen. Panen ke-1 ${P.YPR[0][0].toString().replace('.', ',')}–${P.YPR[0][1].toString().replace('.', ',')} kg, ke-2 ${P.YPR[1][0].toString().replace('.', ',')}–${P.YPR[1][1].toString().replace('.', ',')} kg, ke-3 dst ${P.YPR[2][0].toString().replace('.', ',')}–${P.YPR[2][1].toString().replace('.', ',')} kg per rumpun; musim kemarau ×${P.DRY.toString().replace('.', ',')}.</li>
+      <li><b>Jadwal:</b> panen pertama ${P.FIRST[0]}–${P.FIRST[1]} hari setelah tanam, berikutnya tiap ${P.INT_R[0]}–${P.INT_R[1]} hari (hujan) atau ${P.INT_D[0]}–${P.INT_D[1]} hari (kemarau).</li>
+      <li><b>Rumpun hidup:</b> bila belum diisi pengelola, dihitung dari bibit yang dibeli (${nf.format(PR.bibit)} bibit) × ${pct(PR.survival)} hidup, dibagi ke blok yang sudah ditanam sesuai porsi target.</li>
+      <li><b>Estimasi pengelola</b> (mis. 1/3 Blok A siap November) menggantikan jadwal otomatis untuk porsi itu; sisa blok dijadwalkan setelahnya.</li>
+      <li><b>Setelah ada panen aktual:</b> hasil nyata dibandingkan prediksi, lalu semua panen berikutnya di blok itu disesuaikan (rentang menyempit ±${Math.round(P.BAND * 100)}%) dan jadwalnya bergeser mengikuti tanggal panen nyata.</li>
+    </ol></details>`;
+}
+function predBlokForm(blok) {
+  const PR = predData(), B = PR.blocks.find(x => x.blok === blok), s = ((S.D.pred || {}).blok || []).find(x => x.blok === blok) || {};
+  S.form = { kind: 'predBlok', blok };
+  openSheet(`${sheetHead('Atur ' + esc(blok))}
+  <form class="form" data-on="savePredBlok" novalidate>
+    <div class="field"><label for="pb-t">Tanggal tanam utama</label><input class="inp" id="pb-t" type="date" name="tanam" value="${esc(s.tanam || B.tanam || '')}" max="${today()}"><span class="hint">${B.tanamSrc === 'catatan tanam' && !s.tanam ? 'Saat ini diambil dari catatan kegiatan Tanam pertama.' : 'Dipakai untuk menghitung umur panen pertama.'}</span></div>
+    <div class="field"><label for="pb-r">Jumlah rumpun hidup</label><input class="inp" id="pb-r" name="rumpun" inputmode="numeric" data-on="fmtNum" value="${s.rumpun ? nf.format(s.rumpun) : ''}" placeholder="Perkiraan otomatis: ${nf.format(B.rumpunSrc === 'perkiraan' ? B.rumpun : 0)}"><span class="hint">Kosongkan untuk memakai perkiraan otomatis (bibit dibeli × ${pct(PR.survival)} hidup). Isi hasil hitung lapangan bila ada.</span></div>
+    <div class="field"><label for="pb-c">Catatan <span class="muted">(opsional)</span></label><input class="inp" id="pb-c" name="catatan" value="${esc(s.catatan || '')}" placeholder="mis. jarak tanam 60×80 cm, sulam 20%"></div>
+    <div id="formErr"></div><button class="btn primary block" type="submit">Simpan ke spreadsheet</button></form>`);
+}
+function predEstForm(blok, row) {
+  const e = row ? ((S.D.pred || {}).est || []).find(x => x.row === row) : null;
+  const ms = []; let y = +S.D.today.slice(0, 4), m = +S.D.today.slice(5, 7);
+  for (let i = 0; i < 14; i++) { ms.push(y + '-' + String(m).padStart(2, '0')); if (++m > 12) { m = 1; y++; } }
+  const porsi = [[0.25, '1/4'], [1 / 3, '1/3'], [0.5, '1/2'], [2 / 3, '2/3'], [0.75, '3/4'], [1, 'Seluruh']];
+  const cur = e ? e.porsi : 1 / 3;
+  S.form = { kind: 'predEst', row: row || null };
+  openSheet(`${sheetHead(e ? 'Ubah estimasi panen' : 'Estimasi siap panen')}
+  <form class="form" data-on="savePredEst" novalidate>
+    <p class="small muted" style="margin:0">Contoh: <b>1/3 Blok A</b> sudah bisa dipanen pada <b>November</b>. Prediksi porsi itu mengikuti estimasi ini; sisa blok dijadwalkan setelahnya.</p>
+    <div class="field"><span class="flabel">Blok</span>${opts('blok', S.C.cfg.BLOK, e ? e.blok : (blok || S.C.cfg.BLOK[0]))}</div>
+    <div class="field"><span class="flabel">Porsi blok yang siap panen</span><div class="opts" role="radiogroup">${porsi.map(p => `<label><input type="radio" name="porsi" value="${p[0]}" ${Math.abs(p[0] - cur) < .02 ? 'checked' : ''}><span>${p[1]}</span></label>`).join('')}</div></div>
+    <div class="field"><label for="pe-m">Perkiraan bulan panen</label><select class="inp" id="pe-m" name="bulan">${ms.map((x, i) => `<option value="${x}" ${(e ? e.bulan === x : i === 1) ? 'selected' : ''}>${mLong(x)}</option>`).join('')}</select></div>
+    <div class="field"><label for="pe-c">Catatan <span class="muted">(opsional)</span></label><input class="inp" id="pe-c" name="catatan" value="${esc(e ? e.catatan : '')}" placeholder="mis. tinggi tanaman ±1,2 m, batang mulai keras"></div>
+    <div id="formErr"></div><button class="btn primary block" type="submit">Simpan estimasi</button>
+    ${e ? `<button type="button" class="btn danger block" data-act="delPredEst" data-row="${e.row}">${ic('trash')} Hapus estimasi</button>` : ''}</form>`);
+}
+
+function lahanSeg() { return `<div class="seg" role="tablist">${[['keg', 'Kegiatan'], ['pred', 'Prediksi panen']].map(t => `<button role="tab" aria-selected="${S.lahanTab === t[0]}" data-act="lahanTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div>`; }
 function viewLahan() {
+  if (S.lahanTab === 'pred') return `<section class="intro"><p class="eyebrow">Proyeksi per siklus panen</p><h1>Lahan</h1></section>${lahanSeg()}${viewPred()}`;
   const C = S.C, F = S.lahanF;
   const list = C.prod.filter(p => !F.blok || p.blok === F.blok).slice().reverse();
   const media = [];
@@ -950,6 +1082,7 @@ function viewLahan() {
   const mediaHtml = media.length ? `<section class="sec"><div class="sec-h"><h2>Dokumentasi lahan terbaru</h2><span class="small muted">${media.length} file</span></div>
     <div class="media-row">${media.map(m => `<button class="media-card" data-act="prodDetail" data-row="${m.p.row}"><span class="media-thumb">${isVideo(m.u) ? (posterOf(m.u) ? `<img src="${esc(posterOf(m.u))}" alt="" loading="lazy">` : `<video src="${esc(m.u)}" muted preload="metadata"></video>`) + `<span class="media-play">${PLAY}</span>` : imgTag(m.u)}</span><span>${esc(m.p.blok)} · ${dLong(m.p.tgl)}</span></button>`).join('')}</div></section>` : '';
   return `<section class="intro"><p class="eyebrow">Kegiatan lapangan & kendala</p><h1>Lahan</h1></section>
+  ${lahanSeg()}
   ${mediaHtml}
   <div class="blok-list">${C.blok.map(b => `<div class="blok"><span class="blok-badge">${esc(b.b.replace('Blok ', ''))}</span><div class="blok-main">
     <div class="blok-top"><b>${esc(b.b)}</b><span class="muted num">${kg(b.panen)} / ${kgS(b.target)}</span></div>
@@ -994,6 +1127,136 @@ function riskCard(m) {
     <ol class="steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
     ${m.catatan ? `<p class="note"><b>Progres:</b> ${esc(m.catatan)}</p>` : ''}
     <div class="risk-f"><span>PJ: <b>${esc(m.pj || '—')}</b></span><span class="${overdue ? 'negc' : ''}">Target: <b>${dLong(m.target)}</b>${overdue ? ' · lewat' : ''}</span><span class="sp"></span>${isAdmin() ? `<button class="btn ghost sm" data-act="form" data-v="mit" data-row="${m.row}">${ic('edit')} Ubah</button>` : ''}</div></article>`;
+}
+
+// ===== Prediksi panen per siklus (dipakai bersama oleh Code.gs, aplikasi, dan laporan) =====
+function predictHarvest(D, opt) {
+  opt = opt || {};
+  const cfg = D.cfg || {}, P = cfg.PRED || {};
+  const today = D.today || opt.today || new Date().toISOString().slice(0, 10);
+  const BLOK = cfg.BLOK || [];
+  const FIRST = P.FIRST_DAYS || [75, 90];
+  const INT_R = P.INTERVAL_RAINY || [40, 50], INT_D = P.INTERVAL_DRY || [55, 65];
+  const RAINY = P.RAINY_MONTHS || [11, 12, 1, 2, 3, 4];
+  const YPR = P.KG_PER_RUMPUN || [[0.3, 0.6], [0.5, 0.9], [0.7, 1.2]];
+  const DRY = P.DRY_FACTOR || 0.8;
+  const SURV = P.SURVIVAL || 0.8;
+  const BAND = P.CALIBRATED_BAND || 0.15;
+  const endDate = (cfg.PERIODE_SELESAI || '2028-06') + '-28';
+  const th1End = (cfg.TH1_SELESAI || '2027-06') + '-30';
+  const toD = s => new Date(s + 'T00:00:00Z');
+  const fromD = d => d.toISOString().slice(0, 10);
+  const addD = (s, n) => { const d = toD(s); d.setUTCDate(d.getUTCDate() + Math.round(n)); return fromD(d); };
+  const diff = (a, b) => Math.round((toD(b) - toD(a)) / 864e5);
+  const mid = r => (r[0] + r[1]) / 2;
+  const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+  const isRainy = s => RAINY.indexOf(+s.slice(5, 7)) >= 0;
+  const frac = p => { const L = [[1, 'seluruh blok'], [3 / 4, '3/4 blok'], [2 / 3, '2/3 blok'], [1 / 2, '1/2 blok'], [1 / 3, '1/3 blok'], [1 / 4, '1/4 blok']]; for (let i = 0; i < L.length; i++) if (Math.abs(p - L[i][0]) < 0.02) return L[i][1]; return Math.round(p * 100) + '% blok'; };
+  const prod = (D.prod || []).slice().sort((a, b) => (a.tgl || '').localeCompare(b.tgl || ''));
+  const pred = D.pred || { blok: [], est: [] };
+
+  // Bibit dibeli (pelunasan tidak dihitung agar DP + pelunasan tidak dobel)
+  let bibit = 0;
+  (D.kas || []).forEach(k => {
+    if (k.kat !== 'Biaya Bibit' || /pelunasan/i.test(k.ket || '')) return;
+    const t = String(k.ket || '');
+    const a = t.match(/(\d+(?:[.,]\d+)?)\s*(rb|ribu)\b/i), b = t.match(/(\d{1,3}(?:\.\d{3})+|\d+)\s*(pcs|bibit|batang|stek)/i);
+    if (a) bibit += parseFloat(a[1].replace(',', '.')) * 1000; else if (b) bibit += parseInt(b[1].replace(/\./g, ''), 10);
+  });
+  const tanamDef = {};
+  prod.forEach(p => { if (p.keg === 'Tanam' && p.tgl && !tanamDef[p.blok]) tanamDef[p.blok] = p.tgl; });
+  const setB = {}; (pred.blok || []).forEach(b => { setB[b.blok] = b; });
+  const tgtB = cfg.TARGET_BLOK || {};
+  const planted = BLOK.filter(b => (setB[b] && setB[b].tanam) || tanamDef[b]);
+  const tSum = planted.reduce((s, b) => s + (tgtB[b] || 1), 0) || 1;
+  const autoR = b => Math.round(bibit * SURV * (tgtB[b] || 1) / tSum / 100) * 100;
+
+  const blocks = BLOK.map(b => {
+    const s = setB[b] || {};
+    const tanam = s.tanam || tanamDef[b] || '';
+    const rumpun = +s.rumpun > 0 ? +s.rumpun : (tanam ? autoR(b) : 0);
+    const rSrc = +s.rumpun > 0 ? 'input' : 'perkiraan';
+    const acts = prod.filter(p => p.blok === b && (+p.panen || 0) > 0).map(p => ({ tgl: p.tgl, kg: +p.panen }));
+    const actualKg = sum(acts, a => a.kg);
+    const ests = (pred.est || []).filter(e => e.blok === b && +e.porsi > 0 && /^\d{4}-\d{2}$/.test(e.bulan || '')).sort((x, y) => x.bulan.localeCompare(y.bulan));
+    const portions = []; let used = 0;
+    ests.forEach(e => { const p = Math.min(+e.porsi, 1 - used); if (p <= 0.005) return; used += p; portions.push({ porsi: p, first: e.bulan + '-15', src: 'estimasi', label: frac(p) }); });
+    if (used < 0.995 && tanam && rumpun) {
+      let first = addD(tanam, mid(FIRST));
+      if (ests.length) { const lastE = ests[ests.length - 1].bulan + '-15', after = addD(lastE, 30); if (first < after) first = after; }
+      portions.push({ porsi: 1 - used, first: first, src: ests.length ? 'sisa' : 'otomatis', label: frac(1 - used) });
+    }
+    // Deret panen mentah per porsi
+    const series = rumpun ? portions.map(po => {
+      const out = []; let d = po.first, i = 0;
+      while (d <= endDate && i < 40) {
+        const r = YPR[Math.min(i, YPR.length - 1)], sf = isRainy(d) ? 1 : DRY;
+        out.push({ date: d, idx: i, porsi: po.porsi, label: po.label, src: po.src, r: r, low: rumpun * po.porsi * r[0] * sf, high: rumpun * po.porsi * r[1] * sf });
+        d = addD(d, isRainy(d) ? mid(INT_R) : mid(INT_D)); i++;
+      }
+      return out;
+    }) : [];
+    // Cocokkan tiap panen aktual ke perkiraan terdekat
+    let matchedMid = 0;
+    acts.forEach(a => {
+      let best = null, bd = 1e9;
+      series.forEach((sr, si) => sr.forEach(c => { if (c.used) return; const dd = Math.abs(diff(c.date, a.tgl)); if (dd < bd) { bd = dd; best = c; best.si = si; } }));
+      if (best) { best.used = true; best.act = a.tgl; matchedMid += (best.low + best.high) / 2; }
+    });
+    const factor = acts.length && matchedMid > 0 ? Math.max(0.3, Math.min(3, actualKg / matchedMid)) : null;
+    let cuts = [], late = false;
+    series.forEach((sr, si) => {
+      const ms = sr.filter(c => c.used);
+      let shift = 0, after = -1;
+      if (ms.length) { const lm = ms[ms.length - 1]; shift = diff(lm.date, lm.act); after = lm.idx; }
+      else if (sr.length && sr[0].date < today) {
+        shift = diff(sr[0].date, addD(today, 7));
+        if (!(portions[si].src === 'estimasi' && sr[0].date.slice(0, 7) === today.slice(0, 7))) { late = true; portions[si].late = true; }
+      }
+      sr.filter(c => c.idx > after).forEach(c => {
+        const d = addD(c.date, shift); if (d > endDate) return;
+        const sf = isRainy(d) ? 1 : DRY, lo = rumpun * c.porsi * c.r[0] * sf, hi = rumpun * c.porsi * c.r[1] * sf;
+        if (factor) { const m = (lo + hi) / 2 * factor; cuts.push(Object.assign({}, c, { date: d, low: m * (1 - BAND), high: m * (1 + BAND), calibrated: true })); }
+        else cuts.push(Object.assign({}, c, { date: d, low: lo, high: hi }));
+      });
+    });
+    cuts.sort((x, y) => x.date.localeCompare(y.date));
+    const th = cuts.filter(c => c.date <= th1End);
+    const actTh1 = sum(acts.filter(a => a.tgl <= th1End), a => a.kg);
+    let status;
+    if (!tanam) status = 'Belum ditanam';
+    else if (!rumpun) status = 'Jumlah rumpun belum diisi';
+    else if (factor) status = 'Dikalibrasi dengan ' + acts.length + ' panen aktual (faktor ' + (Math.round(factor * 100) / 100).toString().replace('.', ',') + '×)';
+    else if (ests.length) status = 'Mengikuti estimasi pengelola';
+    else status = 'Perkiraan otomatis dari umur tanam';
+    return {
+      blok: b, tanam: tanam, rumpun: rumpun, rumpunSrc: rSrc, tanamSrc: s.tanam ? 'input' : (tanamDef[b] ? 'catatan tanam' : ''),
+      ests: ests, portions: portions, cuts: cuts, acts: acts, actualKg: actualKg, factor: factor, late: late, status: status,
+      next: cuts[0] || null, target: tgtB[b] || 0,
+      th1Low: actTh1 + sum(th, c => c.low), th1High: actTh1 + sum(th, c => c.high),
+      allLow: actualKg + sum(cuts, c => c.low), allHigh: actualKg + sum(cuts, c => c.high)
+    };
+  });
+
+  const thisM = today.slice(0, 7);
+  const months = [];
+  let y = +thisM.slice(0, 4), m = +thisM.slice(5, 7);
+  const endM = endDate.slice(0, 7);
+  while ((y + '-' + ('0' + m).slice(-2)) <= endM) { months.push(y + '-' + ('0' + m).slice(-2)); if (++m > 12) { m = 1; y++; } }
+  const allCuts = []; blocks.forEach(B => B.cuts.forEach(c => allCuts.push(Object.assign({ blok: B.blok }, c))));
+  allCuts.sort((a, b) => a.date.localeCompare(b.date));
+  const monthly = months.map(mk => {
+    const cs = allCuts.filter(c => c.date.slice(0, 7) === mk);
+    const act = sum(prod.filter(p => (p.tgl || '').slice(0, 7) === mk && +p.panen > 0), p => +p.panen);
+    return { m: mk, low: sum(cs, c => c.low), high: sum(cs, c => c.high), actual: act, target: (cfg.TARGET_BULANAN || {})[mk] || 0, blok: cs.map(c => c.blok).filter((x, i, a) => a.indexOf(x) === i) };
+  });
+  const in3 = monthly.slice(0, 3);
+  return {
+    today: today, bibit: bibit, survival: SURV, params: { FIRST: FIRST, INT_R: INT_R, INT_D: INT_D, YPR: YPR, DRY: DRY, BAND: BAND },
+    blocks: blocks, months: monthly, cuts: allCuts, next: allCuts[0] || null,
+    th1: { low: sum(blocks, b => b.th1Low), high: sum(blocks, b => b.th1High), target: cfg.TARGET_TH1_KG || 0, actual: sum(blocks, b => sum(b.acts.filter(a => a.tgl <= th1End), a => a.kg)) },
+    next3: { low: sum(in3, x => x.low), high: sum(in3, x => x.high), from: in3.length ? in3[0].m : '', to: in3.length ? in3[in3.length - 1].m : '' }
+  };
 }
 
 // ===== Laporan bulanan (dipakai bersama oleh Code.gs dan aplikasi) =====
@@ -1107,6 +1370,17 @@ function buildMonthlyReport(D, mk, opt) {
     bar('Panen kumulatif vs target kumulatif', panenKum, tgtKum || 1, kg(panenKum) + ' / ' + kg(tgtKum), G2) +
     bar('Panen kumulatif vs target tahun ke-1', panenKum, cfg.TARGET_TH1_KG, pct(panenKum / cfg.TARGET_TH1_KG) + ' dari ' + kg(cfg.TARGET_TH1_KG), OR) +
     tbl([{ t: 'Penjualan bulan ini' }, { t: 'Nilai', r: 1 }], [['Volume terjual', kg(jualKg)], ['Pendapatan', rp(jualRp)], ['Jumlah transaksi', String(jM.length)], ['Piutang (belum lunas, kumulatif)', rp(piutang)]], ''));
+  if (typeof predictHarvest === 'function') {
+    const PR = predictHarvest(D);
+    const t1 = x => (Math.round(x / 100) / 10).toString().replace('.', ',') + ' t';
+    const up = PR.cuts.slice(0, 8);
+    h += sec('Prediksi panen (per ' + tg(PR.today) + ')',
+      '<div style="' + F + 'font-size:13px;color:' + JET + ';margin-bottom:10px">Proyeksi tahun ke-1: <b>' + t1(PR.th1.low) + ' – ' + t1(PR.th1.high) + '</b> dari target ' + t1(PR.th1.target) +
+      '. Tiga bulan ke depan: <b>' + t1(PR.next3.low) + ' – ' + t1(PR.next3.high) + '</b>.</div>' +
+      tbl([{ t: 'Perkiraan' }, { t: 'Blok' }, { t: 'Rentang hasil', r: 1 }],
+        up.map(c => [tg(c.date), e(c.blok) + ' · ' + e(c.label) + (c.calibrated ? ' <span style="color:' + OK + ';font-size:11px">terkalibrasi</span>' : ''), t1(c.low) + ' – ' + t1(c.high)]), 'Belum ada blok yang bisa diprediksi.') +
+      '<div style="' + F + 'font-size:11.5px;color:' + MUTE + ';margin-top:8px">Rentang dihitung dari jumlah rumpun hidup, umur tanam, musim, dan estimasi pengelola; menyempit otomatis setelah ada panen aktual.</div>');
+  }
   h += sec('4. Kendala & mitigasi',
     '<div style="' + F + 'font-size:13px;font-weight:700;margin-bottom:8px">Kendala lapangan bulan ini (' + kendala.length + ')</div>' +
     tbl([{ t: 'Tgl' }, { t: 'Kendala' }, { t: 'Tindak lanjut' }],
@@ -1140,7 +1414,7 @@ function reportPanel() {
 }
 function openReport() {
   const mk = ($('#repMonth') || {}).value || defaultReportMonth();
-  const r = buildMonthlyReport({ kas: S.D.kas, jual: S.D.jual, prod: S.D.prod, mit: S.D.mit, cfg: S.C.cfg }, mk, { logo: LOGO_SRC, appUrl: IS_GAS || DEMO ? '' : location.origin, generated: '' });
+  const r = buildMonthlyReport({ kas: S.D.kas, jual: S.D.jual, prod: S.D.prod, mit: S.D.mit, pred: S.D.pred || { blok: [], est: [] }, today: S.D.today, cfg: S.C.cfg }, mk, { logo: LOGO_SRC, appUrl: IS_GAS || DEMO ? '' : location.origin, generated: '' });
   openSheet(`${sheetHead('Laporan ' + esc(r.label))}
     <iframe class="rep-frame" title="Laporan ${esc(r.label)}" srcdoc="${esc(r.html)}"></iframe>
     ${isAdmin() ? `<div class="panel" style="gap:10px"><div class="field"><label for="repNote">Catatan pengelola <span class="muted">(opsional, ikut terkirim)</span></label><textarea class="inp" id="repNote" placeholder="mis. Panen perdana Blok A dijadwalkan 5 November"></textarea></div>
@@ -1435,6 +1709,8 @@ const FORMS = {
     need(String(f.get('risiko')).trim(), 'Isi uraian risiko.'); need(String(f.get('langkah')).trim(), 'Isi minimal satu langkah mitigasi.');
     return { row: S.form.row, guard: r ? r.risiko : undefined, tgl: r ? r.tgl : today(), risiko: String(f.get('risiko')).trim(), kat: f.get('kat'), p: +f.get('p'), d: +f.get('d'), langkah: String(f.get('langkah')).trim(), pj: String(f.get('pj') || '').trim(), target: f.get('target') || '', status: f.get('status'), catatan: String(f.get('catatan') || '').trim() };
   },
+  savePredBlok: f => ({ blok: S.form.blok, tanam: f.get('tanam') || '', rumpun: parseNum(f.get('rumpun')), catatan: String(f.get('catatan') || '').trim() }),
+  savePredEst: f => { need(f.get('porsi'), 'Pilih porsi blok.'); return { row: S.form.row, blok: f.get('blok'), porsi: +f.get('porsi'), bulan: f.get('bulan'), catatan: String(f.get('catatan') || '').trim() }; },
   saveUser: f => ({ isNew: S.form.isNew, username: String(f.get('username') || '').trim().toLowerCase(), nama: String(f.get('nama') || '').trim(), role: f.get('role'), aktif: S.form.isNew ? true : !!f.get('aktif'), email: String(f.get('email') || '').trim(), password: String(f.get('password') || '') })
 };
 
@@ -1470,6 +1746,11 @@ const ACT = {
   demoLogin: async t => { try { await doLogin(t.dataset.u, 'demo', true); } catch (e) { $('#loginErr').innerHTML = `<div class="err">${esc(e.message)}</div>`; } },
   userForm: t => userForm(t.dataset.u),
   openFeed: () => openFeed(),
+  lahanTab: t => { S.lahanTab = t.dataset.v; renderView(); },
+  goPred: () => { S.view = 'lahan'; S.lahanTab = 'pred'; renderView(); window.scrollTo(0, 0); },
+  predBlok: t => predBlokForm(t.dataset.b),
+  predEst: t => predEstForm(t.dataset.b, t.dataset.row ? +t.dataset.row : null),
+  delPredEst: async t => { t.disabled = true; try { await call('deletePredEst', { row: +t.dataset.row }); closeSheet(); await refresh('Estimasi dihapus'); } catch (e) { $('#formErr').innerHTML = `<div class="err">${esc(e.message)}</div>`; t.disabled = false; } },
   openReport: () => openReport(),
   askSendReport: t => { $('#repBox').innerHTML = `<div class="confirm" style="background:var(--accent-soft)"><p style="color:var(--accent-ink)">Kirim laporan ${mLong(t.dataset.m)} ke semua investor yang emailnya terdaftar, dengan lampiran PDF?</p><div class="btn-row"><button class="btn ghost sm" data-act="cancelSend">Batal</button><button class="btn accent sm" data-act="sendReport" data-m="${t.dataset.m}">Ya, kirim</button></div></div>`; },
   cancelSend: () => { $('#repBox').innerHTML = ''; },
