@@ -1892,6 +1892,211 @@ function compress(file) {
 boot();
 </script>
 <script>
+/* ============================================================================
+ *  PATCH Index.html — Panen + Penjualan otomatis, Terima pembayaran
+ *  Tanggal: 15 Nov 2026
+ *
+ *  CARA PASANG:
+ *   Tempel seluruh blok script ini di PALING BAWAH Index.html (Apps Script)
+ *   dan index.html versi Netlify/GitHub, tepat SETELAH penutup script yang terakhir.
+ *   Jangan mengubah isi file lainnya. Pasang bersama patch Code.gs.
+ *
+ *  Yang berubah di tampilan:
+ *   1. Form "Catat panen" baru: pilihan Tujuan (QDF otomatis / Pembeli lain)
+ *   2. Mutasi > Panen & Penjualan (pengelola): kartu piutang + tombol
+ *      "Terima pembayaran" (pilih penjualan, tanggal, metode, foto bukti)
+ *   3. Form edit panen: catatan tentang penjualan terkait
+ *   4. Detail panen (pengelola): kartu "Penjualan terkait"
+ * ============================================================================ */
+(function () {
+  if (typeof FORMS === 'undefined' || typeof ACT === 'undefined' || typeof openForm === 'undefined') return;
+
+  var HARGA = function () { return (S.C && S.C.cfg && S.C.cfg.HARGA_QDF) || 400; };
+  var refNo = function (row) { return String(row - 5); };
+  var pairOf = function (row) {
+    var n = refNo(row);
+    return ((S.C && S.C.jual) || []).find(function (j) {
+      return String(j.ref || '').split(/[;\s]+/).indexOf(n) >= 0;
+    }) || null;
+  };
+
+  /* ---------- 1. Form panen: pilihan Tujuan ---------- */
+  function tujuanHtml() {
+    return '<div class="field" id="tujuanField" hidden>' +
+      '<span class="flabel">Tujuan panen</span>' +
+      opts('tujuan', ['QDF', 'LAIN'], 'QDF', 'split', ['QDF (otomatis)', 'Pembeli lain']) +
+      '<p class="note" id="tujuanQdf" style="margin:0">Otomatis dicatat sebagai penjualan ke QDF, <b>' + rp(HARGA()) +
+      '/kg</b>, status <b>Belum Lunas</b> (piutang).</p>' +
+      '<div id="tujuanLain" class="form" style="gap:12px" hidden>' +
+        '<div class="field"><label for="tj-pb">Nama pembeli</label><input class="inp" id="tj-pb" name="pembeli" placeholder="Nama peternak / kandang"></div>' +
+        '<div class="field"><label for="tj-hg">Harga / kg</label><div class="inp-pre"><span>Rp</span>' +
+        '<input class="inp" id="tj-hg" name="harga" inputmode="numeric" data-on="fmtNum" placeholder="0"></div></div>' +
+        '<p class="note" style="margin:0">Penjualan tetap dicatat <b>Belum Lunas</b>. Setelah uang diterima, pengelola memakai tombol Terima pembayaran.</p>' +
+      '</div></div>';
+  }
+  function syncTujuan() {
+    var form = document.querySelector('#sheetBody form[data-on="saveProd"]');
+    var f = document.getElementById('tujuanField');
+    if (!form || !f) return;
+    var keg = form.querySelector('input[name="keg"]:checked');
+    f.hidden = !(keg && keg.value === 'Panen');
+    var t = form.querySelector('input[name="tujuan"]:checked');
+    var lain = !!(t && t.value === 'LAIN');
+    document.getElementById('tujuanLain').hidden = !lain;
+    document.getElementById('tujuanQdf').hidden = lain;
+  }
+
+  var _openForm = openForm;
+  openForm = function (kind, row, extra) {
+    _openForm(kind, row, extra);
+    try {
+      if (kind !== 'prod') return;
+      var pf = document.getElementById('panenField');
+      if (!pf) return;
+      if (!row) { pf.insertAdjacentHTML('afterend', tujuanHtml()); syncTujuan(); return; }
+      var p = S.C.prod.find(function (x) { return x.row === row; });
+      if (!p || p.keg !== 'Panen') return;
+      var j = pairOf(row), msg;
+      if (!j) msg = 'Panen ini belum punya penjualan terkait di aplikasi (data lama). Perubahan tidak mengubah penjualan.';
+      else if (/;/.test(String(j.ref))) msg = 'Panen ini tercatat dalam penjualan gabungan. Ubah manual di spreadsheet.';
+      else if (j.status === 'Lunas') msg = 'Penjualan terkait sudah Lunas: tanggal, blok, dan kg tidak bisa diubah.';
+      else msg = 'Mengubah tanggal, blok, atau kg juga mengubah penjualan terkait (' + esc(j.pembeli || '') + ', harga tetap ' + rp(j.harga) + '/kg, Belum Lunas).';
+      pf.insertAdjacentHTML('afterend', '<p class="note">' + msg + '</p>');
+    } catch (e) { /* tampilan tambahan tidak boleh merusak form */ }
+  };
+
+  var _saveProd = FORMS.saveProd;
+  FORMS.saveProd = function (f) {
+    var p = _saveProd(f);
+    if (!S.form.row && p.keg === 'Panen') {
+      var t = String(f.get('tujuan') || 'QDF');
+      p.tujuan = t;
+      if (t === 'LAIN') {
+        p.harga = parseNum(f.get('harga'));
+        p.pembeli = String(f.get('pembeli') || '').trim();
+        need(p.harga > 0, 'Isi harga per kg untuk pembeli lain.');
+        need(p.pembeli, 'Isi nama pembeli.');
+      }
+    }
+    return p;
+  };
+
+  /* ---------- 2. Piutang + Terima pembayaran (pengelola) ---------- */
+  function openRows() {
+    return ((S.C && S.C.jual) || []).filter(function (j) { return j.status === 'Belum Lunas'; });
+  }
+  function piutangPanel() {
+    var open = openRows();
+    var total = open.reduce(function (s, j) { return s + j.kg * j.harga; }, 0);
+    var by = {};
+    open.forEach(function (j) {
+      var k = j.pembeli || '(tanpa nama pembeli)';
+      by[k] = by[k] || { n: 0, kg: 0, tot: 0 };
+      by[k].n++; by[k].kg += j.kg; by[k].tot += j.kg * j.harga;
+    });
+    var rows = Object.keys(by).map(function (k) {
+      return '<div><span>' + esc(k) + ' · ' + by[k].n + ' penjualan · ' + kg(by[k].kg) + '</span><b>' + rp(by[k].tot) + '</b></div>';
+    }).join('');
+    return '<div class="panel"><div class="ph"><h3>Piutang penjualan</h3><span class="small muted num">' + open.length + ' belum lunas</span></div>' +
+      '<div class="stat" style="box-shadow:none"><span class="k">Belum dibayar</span><span class="v ' + (total ? 'neg' : 'pos') + '">' + rp(total) + '</span>' +
+      '<span class="s">' + (open.length ? 'Pembayaran per baris penjualan utuh' : 'Semua penjualan sudah Lunas') + '</span></div>' +
+      (rows ? '<div class="kv">' + rows + '</div>' : '') +
+      (open.length ? '<button class="btn accent block" data-act="terimaBayar">' + ic('in') + ' Terima pembayaran</button>' : '') +
+      '</div>';
+  }
+  var _mutPanen = mutPanen;
+  mutPanen = function () { return (isAdmin() ? piutangPanel() : '') + _mutPanen(); };
+
+  function tbForm() { return document.querySelector('#sheetBody form[data-on="terimaPembayaran"]'); }
+  function sumTb() {
+    var form = tbForm(); if (!form) return;
+    var rows = Array.prototype.map.call(form.querySelectorAll('input[name="rows"]:checked'), function (x) { return +x.value; });
+    var tot = S.C.jual.filter(function (j) { return rows.indexOf(j.row) >= 0; }).reduce(function (s, j) { return s + j.kg * j.harga; }, 0);
+    document.getElementById('tbTotal').textContent = rp(tot);
+  }
+  function renderTbList() {
+    var form = tbForm(); if (!form) return;
+    var b = String(form.querySelector('[name="pembeli"]').value || '').toLowerCase();
+    var list = openRows().filter(function (j) { return String(j.pembeli || '').toLowerCase() === b; })
+      .sort(function (a, c) { return String(a.tgl || '').localeCompare(String(c.tgl || '')) || a.row - c.row; });
+    document.getElementById('tbList').innerHTML = list.map(function (j) {
+      return '<label class="check"><input type="checkbox" name="rows" value="' + j.row + '" data-on="tbPick" checked>' +
+        '<span><b>No ' + (j.no || (j.row - 5)) + '</b> · ' + dLong(j.tgl) + '<br>' + esc(j.blok) + ' · ' + kg(j.kg) + ' × ' + rp(j.harga) +
+        ' = <b>' + rp(j.kg * j.harga) + '</b></span></label>';
+    }).join('');
+    sumTb();
+  }
+  function openTerimaBayar() {
+    if (!isAdmin()) return;
+    var open = openRows();
+    var buyers = [], unnamed = 0;
+    open.forEach(function (j) {
+      if (!j.pembeli) { unnamed++; return; }
+      if (buyers.indexOf(j.pembeli) < 0) buyers.push(j.pembeli);
+    });
+    if (!buyers.length) {
+      openSheet(sheetHead('Terima pembayaran') + '<div class="empty"><b>Tidak ada piutang yang bisa dicatat</b><p>' +
+        (unnamed ? unnamed + ' penjualan belum punya nama pembeli. Isi nama pembeli lewat Ubah penjualan dulu.' : 'Semua penjualan sudah Lunas.') + '</p></div>');
+      return;
+    }
+    S.form = { kind: 'terimaPembayaran', photos: [] };
+    openSheet(sheetHead('Terima pembayaran') +
+      '<form class="form" data-on="terimaPembayaran" novalidate>' +
+        '<div class="field"><label for="tb-p">Pembeli</label><select class="inp" id="tb-p" name="pembeli" data-on="tbBuyer">' +
+          buyers.map(function (b) { return '<option>' + esc(b) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><span class="flabel">Penjualan yang dibayar</span><div id="tbList" class="form" style="gap:8px"></div>' +
+          '<span class="hint">Centang baris yang dibayar. Pembayaran dicatat per baris penjualan utuh (tanpa cicilan).</span></div>' +
+        '<div class="total-box"><span class="muted">Total diterima</span><b id="tbTotal">' + rp(0) + '</b></div>' +
+        '<div class="field"><label for="tb-t">Tanggal uang diterima</label><input class="inp" id="tb-t" type="date" name="tgl" value="' + today() + '" max="' + today() + '" required></div>' +
+        '<div class="field"><span class="flabel">Metode</span>' + opts('metode', ['Transfer', 'Tunai', 'Lainnya'], 'Transfer') + '</div>' +
+        photoField('Foto bukti pembayaran (opsional)') +
+        '<p class="note" style="margin:0">Aplikasi menulis <b>satu baris Kas Masuk</b> (kategori Pendapatan Penjualan) dan mengubah baris yang dicentang menjadi <b>Lunas</b>. ' +
+          'Baris kas ini tidak bisa diubah dari aplikasi; koreksi dilakukan manual di spreadsheet.</p>' +
+        (unnamed ? '<p class="note" style="margin:0">' + unnamed + ' penjualan tanpa nama pembeli tidak ditampilkan.</p>' : '') +
+        '<div id="formErr"></div><button class="btn primary block" type="submit">Catat pembayaran</button>' +
+      '</form>');
+    renderPhotos();
+    renderTbList();
+  }
+  ACT.terimaBayar = function () { openTerimaBayar(); };
+
+  FORMS.terimaPembayaran = function (f) {
+    var rows = f.getAll('rows').map(Number);
+    if (!rows.length) throw new Error('Pilih minimal satu penjualan yang dibayar.');
+    if (!f.get('tgl')) throw new Error('Isi tanggal uang diterima.');
+    var tot = S.C.jual.filter(function (j) { return rows.indexOf(j.row) >= 0; }).reduce(function (s, j) { return s + j.kg * j.harga; }, 0);
+    return { pembeli: String(f.get('pembeli') || '').trim(), rows: rows, tgl: f.get('tgl'), metode: f.get('metode'), expectedTotal: tot };
+  };
+
+  document.addEventListener('change', function (e) {
+    var t = e.target, on = t && t.dataset && t.dataset.on;
+    if (on === 'tbBuyer') renderTbList();
+    else if (on === 'tbPick') sumTb();
+    else if (t && (t.name === 'keg' || t.name === 'tujuan')) syncTujuan();
+  });
+
+  /* ---------- 3. Detail panen: kartu penjualan terkait (pengelola) ---------- */
+  var _prodDetail = prodDetail;
+  prodDetail = function (row) {
+    _prodDetail(row);
+    try {
+      var p = S.C.prod.find(function (x) { return x.row === row; });
+      var body = document.getElementById('sheetBody');
+      if (!p || p.keg !== 'Panen' || !body || !isAdmin()) return;
+      var j = pairOf(row), html;
+      if (!j) html = '<p class="note">Belum ada penjualan terkait di aplikasi (data lama).</p>';
+      else html = '<div class="panel"><div class="ph"><h3>Penjualan terkait</h3><span class="tag ' + (j.status === 'Lunas' ? 'ok' : 'warn') + '">' + esc(j.status || '—') + '</span></div>' +
+        '<div class="kv"><div><span>Pembeli</span><b>' + esc(j.pembeli || '—') + '</b></div>' +
+        '<div><span>Kg × harga</span><b>' + kg(j.kg) + ' × ' + rp(j.harga) + '</b></div>' +
+        '<div><span>Total</span><b>' + rp(j.kg * j.harga) + '</b></div>' +
+        (/;/.test(String(j.ref)) ? '<div><span>Catatan</span><b>Penjualan gabungan (ref ' + esc(j.ref) + ')</b></div>' : '') + '</div></div>';
+      var br = body.querySelector('.btn-row');
+      if (br) br.insertAdjacentHTML('beforebegin', html); else body.insertAdjacentHTML('beforeend', html);
+    } catch (e) { /* abaikan */ }
+  };
+})();
+</script>
+<script>
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
 }
